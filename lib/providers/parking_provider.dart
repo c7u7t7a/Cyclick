@@ -65,7 +65,9 @@ class ParkingNotifier extends StateNotifier<AsyncValue<List<BikeParking>>> {
   }
 
   Future<void> addParking(BikeParking p) async {
-    await Supabase.instance.client.from('bike_parkings').insert(p.toJson());
+    // Omit id — let Supabase generate a UUID via default uuid_generate_v4()
+    final data = p.toJson()..remove('id');
+    await Supabase.instance.client.from('bike_parkings').insert(data);
     await load();
   }
 }

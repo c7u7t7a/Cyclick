@@ -66,7 +66,9 @@ class RentalNotifier extends StateNotifier<AsyncValue<List<RentalStation>>> {
   }
 
   Future<void> addStation(RentalStation s) async {
-    await Supabase.instance.client.from('rental_stations').insert(s.toJson());
+    // Omit id — let Supabase generate a UUID via default uuid_generate_v4()
+    final data = s.toJson()..remove('id');
+    await Supabase.instance.client.from('rental_stations').insert(data);
     await load();
   }
 

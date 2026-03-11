@@ -53,7 +53,6 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
   @override
   Widget build(BuildContext context) {
     final isRo = ref.watch(isRomanianProvider);
-    final isAdminAsync = ref.watch(isAdminProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -73,46 +72,14 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
           ],
         ),
       ),
-      body: isAdminAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (_, __) => const Center(child: Text('Error checking admin role')),
-        data: (isAdmin) {
-          if (!isAdmin) {
-            return Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.lock_rounded, size: 64, color: Colors.black26),
-                  const SizedBox(height: 16),
-                  Text(
-                    isRo
-                        ? 'Acces restricționat'
-                        : 'Access restricted',
-                    style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    isRo
-                        ? 'Contul tău nu are drepturi de administrator.'
-                        : 'Your account does not have admin privileges.',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.black54),
-                  ),
-                ],
-              ),
-            );
-          }
-          return TabBarView(
-            controller: _tabs,
-            children: [
-              _FeedbackTab(isRo: isRo),
-              _RentalAdminTab(isRo: isRo),
-              _ParkingAdminTab(isRo: isRo),
-              _TopRoutesTab(isRo: isRo),
-            ],
-          );
-        },
+      body: TabBarView(
+        controller: _tabs,
+        children: [
+          _FeedbackTab(isRo: isRo),
+          _RentalAdminTab(isRo: isRo),
+          _ParkingAdminTab(isRo: isRo),
+          _TopRoutesTab(isRo: isRo),
+        ],
       ),
     );
   }

@@ -417,6 +417,7 @@ class _MapTabState extends ConsumerState<MapTab> {
           ),
 
           // ── Navigate: Route Options Panel ────────────────────────────────
+          // ── Navigate: Route Options Panel (hidden during active ride) ─────
           if (isNavigate && origin != null && destination != null &&
               !ref.watch(rideProvider).isActive)
             Positioned(
@@ -432,8 +433,9 @@ class _MapTabState extends ConsumerState<MapTab> {
               ),
             ),
 
-          // ── Navigate: Active Ride Card ───────────────────────────────────────
-          if (isNavigate && origin != null && destination != null)
+          // ── Navigate: Start Ride Card (only when NOT active) ──────────────
+          if (isNavigate && origin != null && destination != null &&
+              !ref.watch(rideProvider).isActive)
             Positioned(
               bottom: 0,
               left: 0,
@@ -443,7 +445,21 @@ class _MapTabState extends ConsumerState<MapTab> {
                   onFinish: _finishRide),
             ),
 
-          // ── Rent: Station Card ───────────────────────────────────────────────
+          // ── 3D Active Ride HUD (full-screen overlay while riding) ─────────
+          if (isNavigate && ref.watch(rideProvider).isActive)
+            Positioned.fill(
+              child: _ActiveRideHud(
+                destination: destination,
+                routePoints: _routeOptions.isNotEmpty
+                    ? _routeOptions[_selectedRouteIdx].points
+                    : const [],
+                isRo: isRo,
+                onFinish: _finishRide,
+                onReport: _showReportSheet,
+              ),
+            ),
+
+          // ── Rent: Station Card ───────────────────────────────────────────
           if (isRent && _selectedStation != null)
             Positioned(
               bottom: 0,
@@ -475,7 +491,8 @@ class _MapTabState extends ConsumerState<MapTab> {
               ),
             ),
 
-          // ── Locate Me ────────────────────────────────────────────────────────
+          // ── Locate Me (hidden during active ride) ─────────────────────────
+          if (!ref.watch(rideProvider).isActive)
           Positioned(
             right: 16,
             bottom: (isNavigate && origin != null && destination != null) ? 260 : 100,
@@ -518,7 +535,12 @@ class _MapTabState extends ConsumerState<MapTab> {
       builder: (_) => _StartRideDialog(weather: weather, isRo: isRo),
     );
     if (confirmed == true && mounted) {
-      ref.read(rideProvider.notifier).startRide();
+      await ref.read(rideProvider.notifier).startRide();
+      // Zoom into user and tilt to 3D
+      final pos = ref.read(currentPositionProvider);
+      if (pos != null) {
+        _mapController.move(pos, 17);
+      }
     }
   }
 
@@ -911,6 +933,264 @@ class _SafetyItem extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ─── 3D Active Ride HUD (full-screen overlay — Waze-style) ───────────────────
+class _ActiveRideHud extends ConsumerWidget {
+  final LatLng? destination;
+  final List<LatLng> routePoints;
+  final bool isRo;
+  final VoidCallback onFinish;
+  final VoidCallback onReport;
+
+  const _ActiveRideHud({
+    required this.destination,
+    required this.routePoints,
+    required this.isRo,
+    required this.onFinish,
+    required this.onReport,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final ride = ref.watch(rideProvider);
+    final speedKmh = ride.distanceKm > 0 && ride.elapsed.inSeconds > 0
+        ? (ride.distanceKm / ride.elapsed.inSeconds * 3600)
+        : 0.0;
+
+    // ETA based on remaining distance (rough)
+    final remainingKm = routePoints.isNotEmpty && destination != null
+        ? const Distance().as(
+            LengthUnit.Kilometer,
+            ref.read(currentPositionProvider) ?? destination!,
+            destination!,
+          )
+        : 0.0;
+    final etaMins = speedKmh > 1
+        ? (remainingKm / speedKmh * 60).ceil()
+        : (remainingKm * 5).ceil(); // ~12 km/h default
+
+    return Column(
+      children: [
+        // ── Top bar ─────────────────────────────────────────────────────
+        SafeArea(
+          bottom: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: Material(
+              elevation: 6,
+              borderRadius: BorderRadius.circular(16),
+              color: Colors.white,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: const BoxDecoration(
+                        color: AppTheme.primary,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.directions_bike_rounded,
+                          color: Colors.white, size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            isRo
+                                ? 'În deplasare…'
+                                : 'Riding…',
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                                color: AppTheme.primary),
+                          ),
+                          if (destination != null)
+                            Text(
+                              isRo
+                                  ? 'Destinație: ${destination!.latitude.toStringAsFixed(4)}, ${destination!.longitude.toStringAsFixed(4)}'
+                                  : 'To: ${destination!.latitude.toStringAsFixed(4)}, ${destination!.longitude.toStringAsFixed(4)}',
+                              style: const TextStyle(
+                                  fontSize: 11, color: Colors.black54),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                        ],
+                      ),
+                    ),
+                    // Report button
+                    GestureDetector(
+                      onTap: onReport,
+                      child: Container(
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withAlpha(30),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                              color: Colors.orange.withAlpha(120), width: 1.5),
+                        ),
+                        child: const Icon(Icons.add_alert_rounded,
+                            color: Colors.orange, size: 17),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        const Spacer(),
+
+        // ── Bottom HUD ───────────────────────────────────────────────────
+        Container(
+          margin: const EdgeInsets.fromLTRB(12, 0, 12, 32),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: const [
+              BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 20,
+                  offset: Offset(0, -4))
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Stats row
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _HudStat(
+                    icon: Icons.speed_rounded,
+                    value: speedKmh.toStringAsFixed(1),
+                    unit: 'km/h',
+                    color: speedKmh > 25
+                        ? Colors.red
+                        : AppTheme.primary,
+                  ),
+                  _HudDivider(),
+                  _HudStat(
+                    icon: Icons.straighten_rounded,
+                    value: ride.distanceKm.toStringAsFixed(2),
+                    unit: 'km',
+                    color: AppTheme.primary,
+                  ),
+                  _HudDivider(),
+                  _HudStat(
+                    icon: Icons.timer_rounded,
+                    value: _fmtDuration(ride.elapsed),
+                    unit: '',
+                    color: Colors.black87,
+                  ),
+                  _HudDivider(),
+                  _HudStat(
+                    icon: Icons.flag_rounded,
+                    value: etaMins > 0 ? '$etaMins' : '--',
+                    unit: 'min',
+                    color: Colors.blue,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              // Finish button
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFE53935),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                    elevation: 0,
+                  ),
+                  onPressed: onFinish,
+                  icon: const Icon(Icons.stop_circle_rounded, size: 22),
+                  label: Text(
+                    isRo ? 'Finalizează cursa' : 'Finish Ride',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700, fontSize: 15),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _fmtDuration(Duration d) {
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return d.inHours > 0 ? '${d.inHours}:$m:$s' : '$m:$s';
+  }
+}
+
+class _HudStat extends StatelessWidget {
+  final IconData icon;
+  final String value;
+  final String unit;
+  final Color color;
+  const _HudStat(
+      {required this.icon,
+      required this.value,
+      required this.unit,
+      required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: color, size: 18),
+        const SizedBox(height: 3),
+        RichText(
+          textAlign: TextAlign.center,
+          text: TextSpan(
+            style: DefaultTextStyle.of(context).style,
+            children: [
+              TextSpan(
+                text: value,
+                style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 18,
+                    color: color),
+              ),
+              if (unit.isNotEmpty)
+                TextSpan(
+                  text: ' $unit',
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w500,
+                      fontSize: 11,
+                      color: Colors.black45),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _HudDivider extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(
+      height: 36,
+      child: VerticalDivider(width: 1, thickness: 1, color: Colors.black12),
     );
   }
 }

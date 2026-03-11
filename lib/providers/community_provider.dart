@@ -36,11 +36,35 @@ class CommunityNotifier extends AsyncNotifier<List<CommunityGroupModel>> {
   Future<void> toggleJoin(String groupId) async {
     final current = state.valueOrNull ?? [];
     final group = current.firstWhere((g) => g.id == groupId);
+    final userId = _db.auth.currentUser?.id;
+    if (userId == null) return;
+
     if (group.isJoined) {
-      await _db.rpc('leave_group', params: {'gid': groupId});
+      // Leave: delete membership row directly (no RPC needed)
+      await _db
+          .from('group_members')
+          .delete()
+          .eq('group_id', groupId)
+          .eq('user_id', userId);
     } else {
-      await _db.rpc('join_group', params: {'gid': groupId});
+      // Join: insert membership row directly (ignore conflict)
+      await _db.from('group_members').upsert(
+        {'group_id': groupId, 'user_id': userId},
+        onConflict: 'group_id,user_id',
+        ignoreDuplicates: true,
+      );
     }
+
+    // Update participant_count based on actual member count
+    final countRes = await _db
+        .from('group_members')
+        .select()
+        .eq('group_id', groupId);
+    await _db
+        .from('community_groups')
+        .update({'participant_count': countRes.length})
+        .eq('id', groupId);
+
     state = AsyncData(await _fetch());
   }
 

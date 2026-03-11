@@ -10,6 +10,7 @@ import '../../core/theme.dart';
 import '../../models/report_model.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/map_provider.dart';
+import '../../widgets/weather_banner.dart';
 import 'active_ride_card.dart';
 import 'report_bottom_sheet.dart';
 
@@ -69,17 +70,24 @@ class _MapTabState extends ConsumerState<MapTab> {
             ],
           ),
 
-          // ── Floating Search Bar ──────────────────────────────────────────────
+          // ── Floating Search Bar + Weather ────────────────────────────────────
           SafeArea(
             child: Padding(
               padding:
                   const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: _SearchBar(
-                controller: _searchCtrl,
-                onDestinationSet: (latlng) {
-                  ref.read(navigationDestinationProvider.notifier).state =
-                      latlng;
-                },
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _SearchBar(
+                    controller: _searchCtrl,
+                    onDestinationSet: (latlng) {
+                      ref.read(navigationDestinationProvider.notifier).state =
+                          latlng;
+                    },
+                  ),
+                  const SizedBox(height: 6),
+                  const WeatherBanner(),
+                ],
               ),
             ),
           ),

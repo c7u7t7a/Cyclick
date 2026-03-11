@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/history_provider.dart';
+import '../../providers/locale_provider.dart';
 import '../../widgets/app_button.dart';
+import '../admin/admin_screen.dart';
 
 /// User settings, stats, and bicycle details.
 class ProfileTab extends ConsumerWidget {
@@ -31,20 +33,21 @@ class ProfileTab extends ConsumerWidget {
         rides.fold<double>(0, (s, r) => s + r.distanceKm);
     final totalCo2 =
         rides.fold<double>(0, (s, r) => s + r.co2SavedGrams);
+    final isRomanian = ref.watch(isRomanianProvider);
 
     if (user == null) return const SizedBox.shrink();
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Profile'),
+        title: Text(isRomanian ? 'Profil' : 'Profile'),
         actions: [
           TextButton.icon(
             onPressed: () =>
                 ref.read(authStateProvider.notifier).signOut(),
             icon: const Icon(Icons.logout_rounded, size: 18,
                 color: AppTheme.errorColor),
-            label: const Text('Sign Out',
-                style: TextStyle(color: AppTheme.errorColor)),
+            label: Text(isRomanian ? 'Ieșire' : 'Sign Out',
+                style: const TextStyle(color: AppTheme.errorColor)),
           ),
         ],
       ),
@@ -168,26 +171,49 @@ class ProfileTab extends ConsumerWidget {
           Card(
             child: Column(
               children: [
+                // Language toggle
+                ListTile(
+                  leading: const Icon(Icons.language_rounded, color: AppTheme.primary),
+                  title: Text(isRomanian ? 'Limbă' : 'Language'),
+                  subtitle: Text(isRomanian ? 'Română' : 'English'),
+                  trailing: Switch(
+                    value: isRomanian,
+                    activeThumbColor: AppTheme.primary,
+                    activeTrackColor: AppTheme.primary.withAlpha(128),
+                    onChanged: (v) => ref.read(isRomanianProvider.notifier).toggle(),
+                  ),
+                ),
+                const Divider(height: 1, indent: 56),
                 _SettingsTile(
                   icon: Icons.notifications_outlined,
-                  title: 'Ride Notifications',
-                  subtitle: 'Group ride reminders and safety alerts',
+                  title: isRomanian ? 'Notificări curse' : 'Ride Notifications',
+                  subtitle: isRomanian ? 'Reamintiri de grup și alerte de siguranță' : 'Group ride reminders and safety alerts',
                   onTap: () {},
                 ),
                 const Divider(height: 1, indent: 56),
                 _SettingsTile(
                   icon: Icons.privacy_tip_outlined,
-                  title: 'Privacy',
-                  subtitle: 'Manage your location sharing preferences',
+                  title: isRomanian ? 'Confidențialitate' : 'Privacy',
+                  subtitle: isRomanian ? 'Gestionează preferințele de localizare' : 'Manage your location sharing preferences',
                   onTap: () {},
                 ),
                 const Divider(height: 1, indent: 56),
                 _SettingsTile(
                   icon: Icons.account_balance_outlined,
-                  title: 'City Hall Reports',
-                  subtitle:
-                      'View all your infrastructure suggestions submitted',
+                  title: isRomanian ? 'Rapoarte Primărie' : 'City Hall Reports',
+                  subtitle: isRomanian ? 'Vezi toate sesizările tale de infrastructură' : 'View all your infrastructure suggestions submitted',
                   onTap: () {},
+                ),
+                const Divider(height: 1, indent: 56),
+                // Admin Panel link
+                _SettingsTile(
+                  icon: Icons.admin_panel_settings_rounded,
+                  title: isRomanian ? 'Panou Admin' : 'Admin Panel',
+                  subtitle: isRomanian ? 'Feedback, stații și parcări' : 'Feedback, stations & parking',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const AdminScreen()),
+                  ),
                 ),
                 const Divider(height: 1, indent: 56),
                 _SettingsTile(
@@ -201,7 +227,7 @@ class ProfileTab extends ConsumerWidget {
           ),
           const SizedBox(height: 24),
           AppButton(
-            label: 'Sign Out',
+            label: isRomanian ? 'Ieșire din cont' : 'Sign Out',
             backgroundColor: AppTheme.errorColor,
             icon: Icons.logout_rounded,
             onPressed: () =>

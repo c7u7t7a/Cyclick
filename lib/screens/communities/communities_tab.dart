@@ -5,6 +5,8 @@ import 'package:intl/intl.dart';
 import '../../core/theme.dart';
 import '../../models/community_group_model.dart';
 import '../../providers/community_provider.dart';
+import '../../providers/locale_provider.dart';
+import 'community_routes_screen.dart';
 
 /// Social hub — Sector 2 group rides to help cyclists ride safely together.
 class CommunitiesTab extends ConsumerWidget {
@@ -13,17 +15,27 @@ class CommunitiesTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final groups = ref.watch(communityProvider);
+    final isRo = ref.watch(isRomanianProvider);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Community Rides'),
+        title: Text(isRo ? 'Curse Comunitate' : 'Community Rides'),
         actions: [
+          IconButton(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (_) => const CommunityRoutesScreen()),
+            ),
+            icon: const Icon(Icons.route_rounded),
+            tooltip: isRo ? 'Rute' : 'Routes',
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: TextButton.icon(
               onPressed: () => _showCreateGroupDialog(context),
               icon: const Icon(Icons.add_rounded, size: 18),
-              label: const Text('Organize'),
+              label: Text(isRo ? 'Organizează' : 'Organize'),
             ),
           ),
         ],

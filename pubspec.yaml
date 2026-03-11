@@ -31,9 +31,19 @@ dependencies:
   # Backend — Supabase (Auth + PostgreSQL + PostGIS + Realtime)
   supabase_flutter: ^2.3.4
 
+  # Localizations (Romanian / English)
+  flutter_localizations:
+    sdk: flutter
+
+  # Networking (Weather — OpenMeteo, OSRM routing)
+  http: ^1.2.1
+
+  # Audio (music player)
+  just_audio: ^0.9.36
+
   # Utilities
   uuid: ^4.3.3
-  intl: ^0.19.0
+  intl: ^0.20.2
 
 dev_dependencies:
   flutter_test:
@@ -42,3 +52,4 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  generate: true  # enables l10n code generation

@@ -6,6 +6,7 @@ enum ReportType {
   dangerousIntersection,
   blockedLane,
   safeZone,
+  uncleanedPath,
 }
 
 extension ReportTypeX on ReportType {
@@ -19,6 +20,8 @@ extension ReportTypeX on ReportType {
         return 'Blocked Lane';
       case ReportType.safeZone:
         return 'Safe Zone';
+      case ReportType.uncleanedPath:
+        return 'Uncleaned\nPath';
     }
   }
 
@@ -32,6 +35,8 @@ extension ReportTypeX on ReportType {
         return Icons.block_rounded;
       case ReportType.safeZone:
         return Icons.shield_rounded;
+      case ReportType.uncleanedPath:
+        return Icons.cleaning_services_rounded;
     }
   }
 
@@ -45,6 +50,8 @@ extension ReportTypeX on ReportType {
         return const Color(0xFFE53935);
       case ReportType.safeZone:
         return const Color(0xFF4CAF50);
+      case ReportType.uncleanedPath:
+        return const Color(0xFF795548);
     }
   }
 }

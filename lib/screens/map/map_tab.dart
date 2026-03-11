@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -58,6 +60,9 @@ class _MapTabState extends ConsumerState<MapTab> {
   final _mapController = MapController();
   final _searchCtrl = TextEditingController();
 
+  // heading smoothing — previous value used to avoid jitter on small changes
+  double _smoothedHeading = -1.0;
+
   _MapMode? _mapMode;
   _PickStep _pickStep = _PickStep.none;
   RentalStation? _selectedStation;
@@ -99,8 +104,22 @@ class _MapTabState extends ConsumerState<MapTab> {
     final isRo = ref.watch(isRomanianProvider);
     final isRent = _mapMode == _MapMode.rent;
     final isNavigate = _mapMode == _MapMode.navigate;
+    final heading = ref.watch(currentHeadingProvider);
     final routes =
         ref.watch(cyclingRoutesProvider).valueOrNull ?? const [];
+
+    // ── Heading-based map rotation (Waze style) ─────────────────────────────
+    // Only rotate when actively riding and heading data is valid
+    final isActive = ref.watch(rideProvider).isActive;
+    if (isActive && isNavigate && heading >= 0) {
+      // Smooth heading: ignore changes < 3° to avoid jitter
+      if (_smoothedHeading < 0 || (heading - _smoothedHeading).abs() > 3) {
+        _smoothedHeading = heading;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _mapController.rotate(heading);
+        });
+      }
+    }
     final showRoutes = ref.watch(showCyclingRoutesProvider);
 
     return Scaffold(
@@ -109,7 +128,6 @@ class _MapTabState extends ConsumerState<MapTab> {
         children: [
           // ── Map ─────────────────────────────────────────────────────────────
           Builder(builder: (context) {
-            final isActive = ref.watch(rideProvider).isActive;
             Widget mapWidget = FlutterMap(
             mapController: _mapController,
             options: MapOptions(
@@ -267,16 +285,16 @@ class _MapTabState extends ConsumerState<MapTab> {
                 ),
               ],
               if (currentPos != null)
-                MarkerLayer(markers: [_buildUserMarker(currentPos)]),
+                MarkerLayer(markers: [_buildUserMarker(currentPos, isActive && isNavigate)]),
             ],
           );
-            // Apply 3D perspective tilt during active navigation
-            if (isActive && isNavigate) {
+            // Apply 3D perspective tilt in navigation mode (Waze-style)
+            if (isNavigate) {
               mapWidget = ClipRect(
                 child: Transform(
                   transform: Matrix4.identity()
                     ..setEntry(3, 2, 0.0008)
-                    ..rotateX(0.35),
+                    ..rotateX(isActive ? 0.5 : 0.28),
                   alignment: Alignment.bottomCenter,
                   child: mapWidget,
                 ),
@@ -296,10 +314,13 @@ class _MapTabState extends ConsumerState<MapTab> {
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    // ── Search bar (left) + Navigate chip & icons (right) ──
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // Left: search / driving bar
                         Expanded(
                           child: ref.watch(rideProvider).isActive
                               ? _ActiveDrivingBar(isRo: isRo)
@@ -370,46 +391,60 @@ class _MapTabState extends ConsumerState<MapTab> {
                                       },
                                     )),
                         ),
+                        // Right: Navigate chip + icon pills below it
                         if (_mapMode != null) ...[
                           const SizedBox(width: 8),
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
+                            mainAxisSize: MainAxisSize.min,
                             children: [
                               _ModeChip(
                                 mode: _mapMode!,
                                 isRo: isRo,
                                 onTap: _showModePicker,
                               ),
-                              const SizedBox(height: 6),
-                              _MusicToggleButton(
-                                onTap: () => _showMusicSheet(context),
-                              ),
-                              const SizedBox(height: 6),
-                              _MapToggleIconButton(
-                                icon: Icons.route_rounded,
-                                active: showRoutes,
-                                activeColor: const Color(0xFFF44336),
-                                tooltip: isRo ? 'Hartă risc' : 'Risk Map',
-                                onTap: () => ref
-                                    .read(showCyclingRoutesProvider.notifier)
-                                    .state = !showRoutes,
-                              ),
-                              const SizedBox(height: 4),
-                              _MapToggleIconButton(
-                                icon: Icons.local_parking_rounded,
-                                active: _showParking,
-                                activeColor: const Color(0xFF6A1B9A),
-                                tooltip: isRo ? 'Parcare' : 'Parking',
-                                onTap: () =>
-                                    setState(() => _showParking = !_showParking),
+                              const SizedBox(height: 8),
+                              // ── Icon row: music · risk · parking ─────────
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _MusicToggleButton(
+                                    onTap: () => _showMusicSheet(context),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  _MapToggleIconButton(
+                                    icon: Icons.route_rounded,
+                                    active: showRoutes,
+                                    activeColor: const Color(0xFFF44336),
+                                    tooltip:
+                                        isRo ? 'Hartă risc' : 'Risk Map',
+                                    onTap: () => ref
+                                        .read(showCyclingRoutesProvider
+                                            .notifier)
+                                        .state = !showRoutes,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  _MapToggleIconButton(
+                                    icon: Icons.local_parking_rounded,
+                                    active: _showParking,
+                                    activeColor: const Color(0xFF6A1B9A),
+                                    tooltip: isRo ? 'Parcare' : 'Parking',
+                                    onTap: () => setState(
+                                        () => _showParking = !_showParking),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
                         ],
                       ],
                     ),
+                    // ── Weather banner below the whole top row ─────────────
                     const SizedBox(height: 6),
-                    const WeatherBanner(),
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: WeatherBanner(),
+                    ),
                   ],
                 ),
               ),
@@ -745,28 +780,52 @@ class _MapTabState extends ConsumerState<MapTab> {
         .toList();
   }
 
-  Marker _buildUserMarker(LatLng pos) {
+  Marker _buildUserMarker(LatLng pos, bool showArrow) {
     return Marker(
       point: pos,
-      width: 48,
-      height: 48,
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppTheme.primary,
-          shape: BoxShape.circle,
-          border: Border.all(color: Colors.white, width: 3),
-          boxShadow: [
-            BoxShadow(
-              color: AppTheme.primary.withAlpha(100),
-              blurRadius: 12,
+      width: 60,
+      height: showArrow ? 78 : 56,
+      // rotate:true keeps the puck screen-upright while the map rotates
+      rotate: true,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (showArrow) ...[  
+            CustomPaint(
+              size: const Size(22, 14),
+              painter: _ArrowTipPainter(),
             ),
+            const SizedBox(height: 2),
           ],
-        ),
-        child: const Icon(
-          Icons.directions_bike_rounded,
-          color: Colors.white,
-          size: 22,
-        ),
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: AppTheme.primary,
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 3.5),
+              boxShadow: [
+                BoxShadow(
+                  color: AppTheme.primary.withAlpha(130),
+                  blurRadius: 14,
+                  spreadRadius: 2,
+                ),
+                const BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 8,
+                  offset: Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Icon(
+              showArrow
+                  ? Icons.navigation_rounded
+                  : Icons.directions_bike_rounded,
+              color: Colors.white,
+              size: 24,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2195,4 +2254,32 @@ class _RouteInfoCard extends StatelessWidget {
       ),
     );
   }
+}
+
+// ─── Waze-style arrow tip above the user puck ─────────────────────────────────
+class _ArrowTipPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = ui.Path()
+      ..moveTo(size.width / 2, 0)
+      ..lineTo(0, size.height)
+      ..lineTo(size.width, size.height)
+      ..close();
+    // shadow
+    canvas.drawPath(path, Paint()
+      ..color = Colors.black.withAlpha(55)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4));
+    // fill
+    canvas.drawPath(path, Paint()
+      ..color = const Color(0xFF01796F)
+      ..style = PaintingStyle.fill);
+    // white edge
+    canvas.drawPath(path, Paint()
+      ..color = Colors.white.withAlpha(190)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

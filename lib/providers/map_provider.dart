@@ -24,6 +24,9 @@ final rideServiceProvider = Provider<RideService>((ref) {
 // ─── Current user position on map ─────────────────────────────────────────────
 final currentPositionProvider = StateProvider<LatLng?>((ref) => null);
 
+// ─── Current GPS heading (degrees, 0=North, 90=East, -1=unavailable) ──────────
+final currentHeadingProvider = StateProvider<double>((ref) => -1.0);
+
 // ─── Navigation destination ───────────────────────────────────────────────────
 final navigationDestinationProvider = StateProvider<LatLng?>((ref) => null);
 
@@ -91,6 +94,10 @@ class RideNotifier extends StateNotifier<RideState> {
         _ride.addPosition(pos);
         _ref.read(currentPositionProvider.notifier).state =
             LatLng(pos.latitude, pos.longitude);
+        // Track GPS heading for Waze-like map rotation
+        if (pos.heading >= 0) {
+          _ref.read(currentHeadingProvider.notifier).state = pos.heading;
+        }
         state = state.copyWith(
           isActive: true,
           distanceKm: _ride.distanceKm,

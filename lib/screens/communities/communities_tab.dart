@@ -14,7 +14,7 @@ class CommunitiesTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final groups = ref.watch(communityProvider);
+    final groupsAsync = ref.watch(communityProvider);
     final isRo = ref.watch(isRomanianProvider);
 
     return Scaffold(
@@ -47,10 +47,23 @@ class CommunitiesTab extends ConsumerWidget {
           const SizedBox(height: 4),
           // ── Group list ────────────────────────────────────────────────────
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.only(bottom: 24),
-              itemCount: groups.length,
-              itemBuilder: (context, i) => _GroupCard(group: groups[i]),
+            child: groupsAsync.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => Center(child: Text('Could not load rides: $e')),
+              data: (groups) => groups.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'No rides yet.\nBe the first to organize one!',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.black54),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.only(bottom: 24),
+                      itemCount: groups.length,
+                      itemBuilder: (context, i) =>
+                          _GroupCard(group: groups[i]),
+                    ),
             ),
           ),
         ],
@@ -59,21 +72,11 @@ class CommunitiesTab extends ConsumerWidget {
   }
 
   void _showCreateGroupDialog(BuildContext context) {
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Organize a Group Ride'),
-        content: const Text(
-          'Group ride creation will be available once connected to Supabase.\n\n'
-          'Organizers can set date, meeting point, route, and max participants.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Got it'),
-          ),
-        ],
-      ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _CreateGroupSheet(),
     );
   }
 }
@@ -334,6 +337,281 @@ class _JoinButton extends ConsumerWidget {
       child: Text(
         full ? 'Full' : joined ? '✓ Joined' : 'Join',
         style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+}
+
+// ─── Create Group Sheet ───────────────────────────────────────────────────────
+class _CreateGroupSheet extends ConsumerStatefulWidget {
+  const _CreateGroupSheet();
+
+  @override
+  ConsumerState<_CreateGroupSheet> createState() => _CreateGroupSheetState();
+}
+
+class _CreateGroupSheetState extends ConsumerState<_CreateGroupSheet> {
+  final _formKey = GlobalKey<FormState>();
+  final _nameCtrl = TextEditingController();
+  final _descCtrl = TextEditingController();
+  final _meetCtrl = TextEditingController();
+  final _routeCtrl = TextEditingController();
+  DateTime _rideDate = DateTime.now().add(const Duration(days: 1, hours: 8));
+  int _maxParticipants = 20;
+  SafetyLevel _safetyLevel = SafetyLevel.medium;
+  bool _loading = false;
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _descCtrl.dispose();
+    _meetCtrl.dispose();
+    _routeCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+    setState(() => _loading = true);
+    try {
+      await ref.read(communityProvider.notifier).createGroup(
+            name: _nameCtrl.text.trim(),
+            description: _descCtrl.text.trim(),
+            rideDate: _rideDate,
+            meetingPoint: _meetCtrl.text.trim(),
+            meetingLat: 44.4340,
+            meetingLon: 26.1080,
+            maxParticipants: _maxParticipants,
+            safetyLevel: _safetyLevel,
+            routeDescription: _routeCtrl.text.trim().isNotEmpty
+                ? _routeCtrl.text.trim()
+                : null,
+          );
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _pickDateTime() async {
+    final date = await showDatePicker(
+      context: context,
+      initialDate: _rideDate,
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 90)),
+    );
+    if (date == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_rideDate),
+    );
+    if (time == null) return;
+    setState(() {
+      _rideDate = DateTime(
+          date.year, date.month, date.day, time.hour, time.minute);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dateStr = DateFormat('EEE, d MMM · HH:mm').format(_rideDate);
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      padding: EdgeInsets.fromLTRB(
+        24, 16, 24, MediaQuery.of(context).viewInsets.bottom + 32,
+      ),
+      child: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.black12,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Organize a Group Ride',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 20),
+              TextFormField(
+                controller: _nameCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Ride name *',
+                  hintText: 'e.g. Saturday Morning Loop',
+                  prefixIcon: Icon(Icons.edit_rounded),
+                ),
+                validator: (v) => (v == null || v.trim().isEmpty)
+                    ? 'Name is required'
+                    : null,
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _descCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Description',
+                  prefixIcon: Icon(Icons.notes_rounded),
+                ),
+                maxLines: 2,
+              ),
+              const SizedBox(height: 14),
+              InkWell(
+                onTap: _pickDateTime,
+                borderRadius: BorderRadius.circular(12),
+                child: InputDecorator(
+                  decoration: const InputDecoration(
+                    labelText: 'Date & time *',
+                    prefixIcon: Icon(Icons.event_rounded),
+                  ),
+                  child: Text(dateStr,
+                      style: const TextStyle(fontSize: 16)),
+                ),
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _meetCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Meeting point *',
+                  hintText: 'e.g. Parcul IOR, Intrarea A',
+                  prefixIcon: Icon(Icons.location_on_rounded),
+                ),
+                validator: (v) => (v == null || v.trim().isEmpty)
+                    ? 'Meeting point is required'
+                    : null,
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  const Icon(Icons.group_rounded,
+                      color: AppTheme.subtleText, size: 20),
+                  const SizedBox(width: 12),
+                  const Text('Max participants:',
+                      style: TextStyle(fontSize: 14)),
+                  const Spacer(),
+                  DropdownButton<int>(
+                    value: _maxParticipants,
+                    items: [10, 15, 20, 25, 30, 40, 50]
+                        .map((n) => DropdownMenuItem(
+                            value: n, child: Text('$n')))
+                        .toList(),
+                    onChanged: (v) =>
+                        setState(() => _maxParticipants = v!),
+                    underline: const SizedBox.shrink(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              const Text('Safety level:',
+                  style: TextStyle(
+                      fontSize: 14, color: AppTheme.subtleText)),
+              const SizedBox(height: 8),
+              Row(
+                children: SafetyLevel.values.map((level) {
+                  final selected = _safetyLevel == level;
+                  final isLast = level == SafetyLevel.high;
+                  return Expanded(
+                    child: GestureDetector(
+                      onTap: () =>
+                          setState(() => _safetyLevel = level),
+                      child: Container(
+                        margin:
+                            EdgeInsets.only(right: isLast ? 0 : 8),
+                        padding:
+                            const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: selected
+                              ? level.color.withAlpha(38)
+                              : Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: selected
+                                ? level.color
+                                : Colors.transparent,
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(level.icon,
+                                color: level.color, size: 20),
+                            const SizedBox(height: 4),
+                            Text(
+                              level.label,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: level.color,
+                                fontWeight: selected
+                                    ? FontWeight.w700
+                                    : FontWeight.normal,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                controller: _routeCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Route description (optional)',
+                  hintText:
+                      'e.g. Parcul IOR → Bd. Camil Ressu → Piața Muncii',
+                  prefixIcon: Icon(Icons.route_rounded),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: _loading ? null : _submit,
+                      child: _loading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white),
+                            )
+                          : const Text('Create →'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

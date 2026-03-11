@@ -7,7 +7,6 @@ import 'map/map_tab.dart';
 import 'history/history_tab.dart';
 import 'communities/communities_tab.dart';
 import 'profile/profile_tab.dart';
-import 'rental/rental_tab.dart';
 
 /// Root scaffold with bottom tab navigation.
 class MainScaffold extends ConsumerStatefulWidget {
@@ -23,7 +22,6 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
   static const _tabs = [
     MapTab(),
     HistoryTab(),
-    RentalTab(),
     CommunitiesTab(),
     ProfileTab(),
   ];
@@ -60,11 +58,6 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
             icon: const Icon(Icons.history_outlined),
             activeIcon: const Icon(Icons.history_rounded),
             label: isRo ? 'Istoric' : 'History',
-          ),
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.pedal_bike_outlined),
-            activeIcon: const Icon(Icons.pedal_bike_rounded),
-            label: isRo ? 'Închirieri' : 'Rentals',
           ),
           BottomNavigationBarItem(
             icon: const Icon(Icons.group_outlined),

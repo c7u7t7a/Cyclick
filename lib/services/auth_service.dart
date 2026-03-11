@@ -107,10 +107,14 @@ class AuthService {
     if (msg.contains('invalid login') || msg.contains('invalid credentials')) {
       return 'Incorrect email or password.';
     }
+    if (msg.contains('email not confirmed') || msg.contains('not confirmed')) {
+      return 'Please confirm your email address first. Check your inbox for a confirmation link from Supabase.';
+    }
     if (msg.contains('email already')) return 'An account with this email already exists.';
     if (msg.contains('network') || msg.contains('socket')) {
       return 'Network error. Check your connection and try again.';
     }
-    return 'Something went wrong. Please try again.';
+    // Surface the real message so issues are visible
+    return e.toString();
   }
 }

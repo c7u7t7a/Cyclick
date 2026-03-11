@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../../core/constants.dart';
+import '../../core/mapbox_token.dart';
 import '../../core/theme.dart';
 import '../../providers/rental_provider.dart';
 import '../../providers/parking_provider.dart';
@@ -70,8 +71,10 @@ class _RentalTabState extends ConsumerState<RentalTab> {
             ),
             children: [
               TileLayer(
-                urlTemplate: kOsmTileUrl,
+                urlTemplate:
+                    '$kMapboxStyleUrl?access_token=$kMapboxPublicToken',
                 userAgentPackageName: 'com.cyclick.app',
+                tileProvider: NetworkTileProvider(),
               ),
               // Walking route polyline
               if (_walkingRoute.length >= 2)

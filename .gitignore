@@ -8,6 +8,9 @@
 .build/
 .buildlog/
 .history
+
+# Mapbox token — never commit the real key
+lib/core/mapbox_token.dart
 .svn/
 .swiftpm/
 migrate_working_dir/

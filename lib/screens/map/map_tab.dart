@@ -18,6 +18,7 @@ import '../../widgets/weather_banner.dart';
 import 'active_ride_card.dart';
 import 'report_bottom_sheet.dart';
 import '../../providers/cycling_routes_layer_provider.dart';
+import '../../core/mapbox_token.dart';
 
 enum _MapMode { navigate, rent }
 
@@ -86,8 +87,10 @@ class _MapTabState extends ConsumerState<MapTab> {
             ),
             children: [
               TileLayer(
-                urlTemplate: kOsmTileUrl,
+                urlTemplate:
+                    '$kMapboxStyleUrl?access_token=$kMapboxPublicToken',
                 userAgentPackageName: 'com.cyclick.app',
+                tileProvider: NetworkTileProvider(),
               ),
               // ── Cycling infrastructure risk layer (always under markers) ────
               if (showRoutes && routes.isNotEmpty)

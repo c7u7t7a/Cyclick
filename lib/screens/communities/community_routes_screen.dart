@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../../core/constants.dart';
+import '../../core/mapbox_token.dart';
 import '../../core/theme.dart';
 import '../../providers/community_route_provider.dart';
 import '../../providers/auth_provider.dart';
@@ -41,8 +42,10 @@ class CommunityRoutesScreen extends ConsumerWidget {
                   ),
                   children: [
                     TileLayer(
-                        urlTemplate: kOsmTileUrl,
-                        userAgentPackageName: 'com.cyclick.app'),
+                        urlTemplate:
+                            '$kMapboxStyleUrl?access_token=$kMapboxPublicToken',
+                        userAgentPackageName: 'com.cyclick.app',
+                        tileProvider: NetworkTileProvider()),
                     PolylineLayer(polylines: [
                       Polyline(
                         points: selected.waypoints,

@@ -19,10 +19,11 @@ const String kRouteAuth = '/auth';
 const String kRouteHome = '/home';
 const String kRouteFeedback = 'feedback'; // sub-route of /home
 
-// ─── Map Tiles ────────────────────────────────────────────────────────────────
-const String kOsmTileUrl =
-    'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-const String kOsmAttribution = '© OpenStreetMap contributors';
+// ─── Map Tiles ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// Token is in mapbox_token.dart (gitignored). Full URL built in map_tab.dart.
+const String kMapboxStyleUrl =
+    'https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/256/{z}/{x}/{y}@2x';
+const String kOsmAttribution = '© Mapbox © OpenStreetMap contributors';
 
 // ─── Supabase / PostGIS ───────────────────────────────────────────────────────
 // TODO: Replace these placeholders with your real Supabase project credentials.

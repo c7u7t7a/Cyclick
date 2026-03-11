@@ -13,14 +13,30 @@ import '../../providers/map_provider.dart';
 import '../../providers/rental_provider.dart';
 import '../../providers/parking_provider.dart';
 import '../../providers/locale_provider.dart';
+import '../../providers/cycling_routes_layer_provider.dart';
+import '../../providers/music_provider.dart';
 import '../../services/notification_service.dart';
 import '../../services/routing_service.dart';
 import '../../widgets/weather_banner.dart';
+import '../../core/mapbox_token.dart';
 import 'active_ride_card.dart';
 import 'report_bottom_sheet.dart';
-import '../../providers/cycling_routes_layer_provider.dart';
-import '../../providers/music_provider.dart';
-import '../../core/mapbox_token.dart';
+
+// ─── Cycling Route Alternative model ─────────────────────────────────────────
+class _CyclingRoute {
+  final String label;
+  final String summary;
+  final List<LatLng> points;
+  final Color color;
+  final IconData icon;
+  const _CyclingRoute({
+    required this.label,
+    required this.summary,
+    required this.points,
+    required this.color,
+    required this.icon,
+  });
+}
 
 enum _MapMode { navigate, rent }
 
@@ -46,6 +62,11 @@ class _MapTabState extends ConsumerState<MapTab> {
   List<LatLng> _walkingRoute = [];
   int _walkingMinutes = 0;
   CyclingRouteFeature? _selectedRoute;
+
+  // Three route alternatives (safe / balanced / fast)
+  List<_CyclingRoute> _routeOptions = [];
+  int _selectedRouteIdx = 1; // default: balanced
+  bool _loadingRoutes = false;
 
   @override
   void initState() {
@@ -118,6 +139,24 @@ class _MapTabState extends ConsumerState<MapTab> {
                   ],
                 ),
               if (isNavigate) ...[
+                // ── 3 route alternatives polylines ─────────────────────────
+                if (_routeOptions.isNotEmpty)
+                  PolylineLayer(
+                    polylines: [
+                      for (int i = 0; i < _routeOptions.length; i++)
+                        if (_routeOptions[i].points.length >= 2)
+                          Polyline(
+                            points: _routeOptions[i].points,
+                            color: i == _selectedRouteIdx
+                                ? _routeOptions[i].color
+                                : _routeOptions[i].color.withAlpha(80),
+                            strokeWidth: i == _selectedRouteIdx ? 5 : 3,
+                            isDotted: i != _selectedRouteIdx,
+                            strokeCap: StrokeCap.round,
+                            strokeJoin: StrokeJoin.round,
+                          ),
+                    ],
+                  ),
                 MarkerLayer(markers: _buildReportMarkers(reports)),
                 MarkerLayer(
                   markers: parkings
@@ -243,87 +282,132 @@ class _MapTabState extends ConsumerState<MapTab> {
           }),
 
           // ── Search / Navigation Panel + Mode/Music controls ─────────────────
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: (isNavigate && !ref.watch(rideProvider).isActive)
-                            ? _NavigationSearchPanel(
-                                origin: origin,
-                                destination: destination,
-                                pickStep: _pickStep,
-                                isRo: isRo,
-                                currentPos: currentPos,
-                                onOriginSet: (latlng) {
-                                  ref.read(rideOriginProvider.notifier).state =
-                                      latlng;
-                                  setState(() => _pickStep = _PickStep.none);
-                                },
-                                onDestinationSet: (latlng) {
-                                  ref
-                                      .read(navigationDestinationProvider
-                                          .notifier)
-                                      .state = latlng;
-                                  setState(() => _pickStep = _PickStep.none);
-                                },
-                                onPickOriginFromMap: () => setState(
-                                    () => _pickStep = _PickStep.pickingOrigin),
-                                onPickDestFromMap: () => setState(
-                                    () => _pickStep = _PickStep.pickingDest),
-                                onClearOrigin: () {
-                                  ref.read(rideOriginProvider.notifier).state =
-                                      null;
-                                  setState(() => _pickStep = _PickStep.none);
-                                },
-                                onClearDest: () {
-                                  ref
-                                      .read(navigationDestinationProvider
-                                          .notifier)
-                                      .state = null;
-                                  setState(() => _pickStep = _PickStep.none);
-                                },
-                              )
-                            : _SearchBar(
-                                controller: _searchCtrl,
-                                onDestinationSet: (latlng) {
-                                  if (isNavigate) {
-                                    ref
-                                        .read(navigationDestinationProvider
-                                            .notifier)
-                                        .state = latlng;
-                                  }
-                                },
-                              ),
-                      ),
-                      if (_mapMode != null) ...[
-                        const SizedBox(width: 8),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            _ModeChip(
-                              mode: _mapMode!,
-                              isRo: isRo,
-                              onTap: _showModePicker,
-                            ),
-                            const SizedBox(height: 6),
-                            const _MusicToggleButton(),
-                          ],
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: ref.watch(rideProvider).isActive
+                              ? _ActiveDrivingBar(isRo: isRo)
+                              : (isNavigate
+                                  ? _NavigationSearchPanel(
+                                      origin: origin,
+                                      destination: destination,
+                                      pickStep: _pickStep,
+                                      isRo: isRo,
+                                      currentPos: currentPos,
+                                      onOriginSet: (latlng) {
+                                        ref
+                                            .read(rideOriginProvider.notifier)
+                                            .state = latlng;
+                                        setState(
+                                            () => _pickStep = _PickStep.none);
+                                        _maybeFetchRoutes(latlng,
+                                            ref.read(navigationDestinationProvider));
+                                      },
+                                      onDestinationSet: (latlng) {
+                                        ref
+                                            .read(navigationDestinationProvider
+                                                .notifier)
+                                            .state = latlng;
+                                        setState(
+                                            () => _pickStep = _PickStep.none);
+                                        _maybeFetchRoutes(
+                                            ref.read(rideOriginProvider),
+                                            latlng);
+                                      },
+                                      onPickOriginFromMap: () => setState(() =>
+                                          _pickStep = _PickStep.pickingOrigin),
+                                      onPickDestFromMap: () => setState(
+                                          () =>
+                                              _pickStep = _PickStep.pickingDest),
+                                      onClearOrigin: () {
+                                        ref
+                                            .read(rideOriginProvider.notifier)
+                                            .state = null;
+                                        setState(() {
+                                          _pickStep = _PickStep.none;
+                                          _routeOptions = [];
+                                        });
+                                      },
+                                      onClearDest: () {
+                                        ref
+                                            .read(navigationDestinationProvider
+                                                .notifier)
+                                            .state = null;
+                                        setState(() {
+                                          _pickStep = _PickStep.none;
+                                          _routeOptions = [];
+                                        });
+                                      },
+                                    )
+                                  : _SearchBar(
+                                      controller: _searchCtrl,
+                                      onDestinationSet: (latlng) {
+                                        if (isNavigate) {
+                                          ref
+                                              .read(navigationDestinationProvider
+                                                  .notifier)
+                                              .state = latlng;
+                                          _maybeFetchRoutes(
+                                              ref.read(rideOriginProvider),
+                                              latlng);
+                                        }
+                                      },
+                                    )),
                         ),
+                        if (_mapMode != null) ...[
+                          const SizedBox(width: 8),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              _ModeChip(
+                                mode: _mapMode!,
+                                isRo: isRo,
+                                onTap: _showModePicker,
+                              ),
+                              const SizedBox(height: 6),
+                              _MusicToggleButton(
+                                onTap: () => _showMusicSheet(context),
+                              ),
+                            ],
+                          ),
+                        ],
                       ],
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  const WeatherBanner(),
-                ],
+                    ),
+                    const SizedBox(height: 6),
+                    const WeatherBanner(),
+                  ],
+                ),
               ),
             ),
           ),
+
+          // ── Navigate: Route Options Panel ────────────────────────────────
+          if (isNavigate && origin != null && destination != null &&
+              !ref.watch(rideProvider).isActive)
+            Positioned(
+              bottom: 180,
+              left: 12,
+              right: 12,
+              child: _RouteOptionsPanel(
+                routes: _routeOptions,
+                loading: _loadingRoutes,
+                selectedIdx: _selectedRouteIdx,
+                isRo: isRo,
+                onSelect: (i) => setState(() => _selectedRouteIdx = i),
+              ),
+            ),
 
           // ── Navigate: Active Ride Card ───────────────────────────────────────
           if (isNavigate && origin != null && destination != null)
@@ -480,6 +564,55 @@ class _MapTabState extends ConsumerState<MapTab> {
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
+  Future<void> _maybeFetchRoutes(LatLng? from, LatLng? to) async {
+    if (from == null || to == null) return;
+    setState(() {
+      _loadingRoutes = true;
+      _routeOptions = [];
+    });
+    try {
+      final svc = RoutingService();
+      final opts = await svc.getCyclingRouteOptions(from, to);
+      if (mounted) {
+        setState(() {
+          _routeOptions = opts
+              .map((o) => _CyclingRoute(
+                    label: o.label,
+                    summary: o.summary,
+                    points: o.points,
+                    color: o.color,
+                    icon: o.icon,
+                  ))
+              .toList();
+          _selectedRouteIdx = 1; // balanced by default
+          _loadingRoutes = false;
+        });
+        if (_routeOptions.isNotEmpty) {
+          final pts = _routeOptions[_selectedRouteIdx].points;
+          if (pts.length >= 2) {
+            final bounds = LatLngBounds.fromPoints(pts);
+            _mapController.fitCamera(
+              CameraFit.bounds(
+                bounds: bounds,
+                padding: const EdgeInsets.fromLTRB(40, 200, 40, 260),
+              ),
+            );
+          }
+        }
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingRoutes = false);
+    }
+  }
+
+  void _showMusicSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _MusicSheet(),
+    );
+  }
+
   void _onMapTap(LatLng latlng) {
     // Prioritise route info tap over navigation destination
     if (ref.read(showCyclingRoutesProvider)) {
@@ -496,9 +629,11 @@ class _MapTabState extends ConsumerState<MapTab> {
       if (_pickStep == _PickStep.pickingOrigin) {
         ref.read(rideOriginProvider.notifier).state = latlng;
         setState(() => _pickStep = _PickStep.none);
+        _maybeFetchRoutes(latlng, ref.read(navigationDestinationProvider));
       } else if (_pickStep == _PickStep.pickingDest) {
         ref.read(navigationDestinationProvider.notifier).state = latlng;
         setState(() => _pickStep = _PickStep.none);
+        _maybeFetchRoutes(ref.read(rideOriginProvider), latlng);
       }
     }
   }
@@ -559,7 +694,10 @@ class _MapTabState extends ConsumerState<MapTab> {
 
     final completed = ref.read(rideProvider.notifier).finishRide(user.id);
     ref.read(navigationDestinationProvider.notifier).state = null;
-    setState(() => _pickStep = _PickStep.none);
+    setState(() {
+      _pickStep = _PickStep.none;
+      _routeOptions = [];
+    });
 
     if (mounted) {
       context.go('/home/feedback', extra: completed);
@@ -887,13 +1025,14 @@ class _QuickChip extends StatelessWidget {
 
 // ─── Music Toggle Button (mini floating icon on map) ─────────────────────────
 class _MusicToggleButton extends ConsumerWidget {
-  const _MusicToggleButton();
+  final VoidCallback onTap;
+  const _MusicToggleButton({required this.onTap});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final isPlaying = ref.watch(musicProvider).isPlaying;
     return GestureDetector(
-      onTap: () => ref.read(musicProvider.notifier).playPause(),
+      onTap: onTap,
       child: Container(
         width: 38,
         height: 38,
@@ -910,6 +1049,275 @@ class _MusicToggleButton extends ConsumerWidget {
           color: isPlaying ? Colors.white : Colors.black38,
           size: 18,
         ),
+      ),
+    );
+  }
+}
+
+// ─── Music Sheet (mini player bottom sheet) ───────────────────────────────────
+class _MusicSheet extends ConsumerWidget {
+  const _MusicSheet();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final music = ref.watch(musicProvider);
+    final notifier = ref.read(musicProvider.notifier);
+    final track = music.currentTrack;
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 36),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Colors.black12,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(height: 20),
+          // Album art placeholder
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(
+              color: AppTheme.primary.withAlpha(40),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.music_note_rounded,
+                color: AppTheme.primary, size: 36),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            track.title,
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            track.artist,
+            style: const TextStyle(color: Colors.black54, fontSize: 13),
+          ),
+          const SizedBox(height: 16),
+          // Progress bar
+          if (music.duration.inSeconds > 0)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  thumbShape:
+                      const RoundSliderThumbShape(enabledThumbRadius: 6),
+                  trackHeight: 3,
+                  overlayShape:
+                      const RoundSliderOverlayShape(overlayRadius: 14),
+                ),
+                child: Slider(
+                  value: music.position.inSeconds
+                      .clamp(0, music.duration.inSeconds)
+                      .toDouble(),
+                  max: music.duration.inSeconds.toDouble(),
+                  activeColor: AppTheme.primary,
+                  inactiveColor: Colors.black12,
+                  onChanged: (_) {}, // stream radio — no seeking
+                ),
+              ),
+            ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              IconButton(
+                onPressed: notifier.previous,
+                icon: const Icon(Icons.skip_previous_rounded),
+                iconSize: 36,
+                color: AppTheme.primary,
+              ),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: notifier.playPause,
+                child: Container(
+                  width: 56,
+                  height: 56,
+                  decoration: const BoxDecoration(
+                    color: AppTheme.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    music.isPlaying
+                        ? Icons.pause_rounded
+                        : Icons.play_arrow_rounded,
+                    color: Colors.white,
+                    size: 32,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                onPressed: notifier.next,
+                icon: const Icon(Icons.skip_next_rounded),
+                iconSize: 36,
+                color: AppTheme.primary,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Active Driving Bar (compact header shown during an active ride) ──────────
+class _ActiveDrivingBar extends ConsumerWidget {
+  final bool isRo;
+  const _ActiveDrivingBar({required this.isRo});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final ride = ref.watch(rideProvider);
+    return Material(
+      elevation: 4,
+      borderRadius: BorderRadius.circular(AppTheme.radius),
+      color: AppTheme.primary,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          children: [
+            const Icon(Icons.directions_bike_rounded,
+                color: Colors.white, size: 20),
+            const SizedBox(width: 10),
+            Text(
+              isRo ? 'În deplasare' : 'Riding',
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14),
+            ),
+            const Spacer(),
+            Text(
+              '${ride.distanceKm.toStringAsFixed(1)} km',
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              _fmt(ride.elapsed),
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _fmt(Duration d) {
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return d.inHours > 0 ? '${d.inHours}:$m:$s' : '$m:$s';
+  }
+}
+
+// ─── Route Options Panel ──────────────────────────────────────────────────────
+class _RouteOptionsPanel extends StatelessWidget {
+  final List<_CyclingRoute> routes;
+  final bool loading;
+  final int selectedIdx;
+  final bool isRo;
+  final void Function(int) onSelect;
+
+  const _RouteOptionsPanel({
+    required this.routes,
+    required this.loading,
+    required this.selectedIdx,
+    required this.isRo,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      elevation: 6,
+      borderRadius: BorderRadius.circular(16),
+      color: Colors.white,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: loading
+            ? const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2)),
+                  SizedBox(width: 10),
+                  Text('Se calculează rutele…',
+                      style: TextStyle(fontSize: 13, color: Colors.black54)),
+                ],
+              )
+            : routes.isEmpty
+                ? const SizedBox.shrink()
+                : Row(
+                    children: [
+                      for (int i = 0; i < routes.length; i++) ...[
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => onSelect(i),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 200),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: i == selectedIdx
+                                    ? routes[i].color.withAlpha(30)
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: i == selectedIdx
+                                      ? routes[i].color
+                                      : Colors.transparent,
+                                  width: 2,
+                                ),
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(routes[i].icon,
+                                      color: routes[i].color, size: 22),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    routes[i].label,
+                                    style: TextStyle(
+                                        color: routes[i].color,
+                                        fontWeight: FontWeight.w700,
+                                        fontSize: 11),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  Text(
+                                    routes[i].summary,
+                                    style: const TextStyle(
+                                        fontSize: 10,
+                                        color: Colors.black54),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (i < routes.length - 1)
+                          const SizedBox(
+                              height: 40,
+                              child: VerticalDivider(width: 12)),
+                      ]
+                    ],
+                  ),
       ),
     );
   }

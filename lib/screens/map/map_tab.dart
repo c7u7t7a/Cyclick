@@ -86,6 +86,31 @@ class _MapTabState extends ConsumerState<MapTab> {
               ),
               if (isNavigate) ...[
                 MarkerLayer(markers: _buildReportMarkers(reports)),
+                MarkerLayer(
+                  markers: parkings
+                      .map((p) => Marker(
+                            point: p.latLng,
+                            width: 36,
+                            height: 36,
+                            child: Tooltip(
+                              message:
+                                  '${p.name} (${p.capacity} ${isRo ? 'locuri' : 'spots'}${p.isCovered ? (isRo ? ', acoperit' : ', covered') : ''})',
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF6A1B9A),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                      color: Colors.white, width: 1.5),
+                                ),
+                                child: const Icon(
+                                    Icons.local_parking_rounded,
+                                    color: Colors.white,
+                                    size: 18),
+                              ),
+                            ),
+                          ))
+                      .toList(),
+                ),
                 if (destination != null)
                   MarkerLayer(
                       markers: [_buildDestinationMarker(destination)]),
@@ -225,19 +250,21 @@ class _MapTabState extends ConsumerState<MapTab> {
               ),
             ),
 
-          // ── Rent: Legend ─────────────────────────────────────────────────────
-          if (isRent)
+          // ── Legend (navigate = parking only, rent = rental + parking) ─────────
+          if (isNavigate || isRent)
             Positioned(
-              bottom: _selectedStation != null ? 180 : 24,
+              bottom: (isRent && _selectedStation != null) ? 180 : 24,
               left: 16,
               child: Row(
                 children: [
-                  _LegendChip(
-                    color: const Color(0xFF1565C0),
-                    icon: Icons.pedal_bike_rounded,
-                    label: isRo ? 'Închiriere' : 'Rental',
-                  ),
-                  const SizedBox(width: 8),
+                  if (isRent) ...[
+                    _LegendChip(
+                      color: const Color(0xFF1565C0),
+                      icon: Icons.pedal_bike_rounded,
+                      label: isRo ? 'Închiriere' : 'Rental',
+                    ),
+                    const SizedBox(width: 8),
+                  ],
                   _LegendChip(
                     color: const Color(0xFF6A1B9A),
                     icon: Icons.local_parking_rounded,

@@ -5,6 +5,8 @@ import '../../core/theme.dart';
 import '../../providers/rental_provider.dart';
 import '../../providers/parking_provider.dart';
 import '../../providers/locale_provider.dart';
+import '../../providers/history_provider.dart';
+import '../../providers/community_route_provider.dart';
 
 /// Emails that always have admin access (hackathon bypass).
 const _hardcodedAdmins = {'lazarcristi720@gmail.com'};
@@ -108,13 +110,27 @@ class _FeedbackTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final localRides = ref.watch(historyProvider);
     return FutureBuilder<List<Map<String, dynamic>>>(
       future: _loadFeedback(),
       builder: (ctx, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        final rows = snap.data ?? [];
+        final dbRows = snap.data ?? [];
+        // Fall back to in-memory seed/loaded rides when Supabase is empty
+        final rows = dbRows.isNotEmpty
+            ? dbRows
+            : localRides
+                .map((r) => <String, dynamic>{
+                      'id': r.id,
+                      'started_at': r.startedAt.toIso8601String(),
+                      'distance_km': r.distanceKm,
+                      'safety_rating': r.safetyRating,
+                      'feedback_tags': r.feedbackTags,
+                      'city_hall_message': r.cityHallMessage,
+                    })
+                .toList();
         if (rows.isEmpty) {
           return Center(
               child: Text(isRo
@@ -406,15 +422,15 @@ const double kSector2LatFallback = 44.4557;
 const double kSector2LonFallback = 26.1162;
 
 // ─── Top Routes Admin Tab ────────────────────────────────────────────────────
-class _TopRoutesTab extends StatefulWidget {
+class _TopRoutesTab extends ConsumerStatefulWidget {
   final bool isRo;
   const _TopRoutesTab({required this.isRo});
 
   @override
-  State<_TopRoutesTab> createState() => _TopRoutesTabState();
+  ConsumerState<_TopRoutesTab> createState() => _TopRoutesTabState();
 }
 
-class _TopRoutesTabState extends State<_TopRoutesTab> {
+class _TopRoutesTabState extends ConsumerState<_TopRoutesTab> {
   late Future<List<Map<String, dynamic>>> _future;
 
   static const _medals = ['🥇', '🥈', '🥉'];
@@ -436,7 +452,7 @@ class _TopRoutesTabState extends State<_TopRoutesTab> {
           .then((r) {
             final rows = List<Map<String, dynamic>>.from(r as List);
             // Filter to current month and compute score
-            final thisMonth = rows.where((row) {
+            var thisMonth = rows.where((row) {
               final dt = DateTime.tryParse(row['created_at'] as String? ?? '');
               return dt != null &&
                   dt.year == now.year &&
@@ -449,9 +465,34 @@ class _TopRoutesTabState extends State<_TopRoutesTab> {
                   (b['downvotes'] as num? ?? 0));
               return sb.compareTo(sa);
             });
-            return thisMonth.take(3).toList().asMap().entries.map((e) {
+            var ranked = thisMonth.take(3).toList().asMap().entries.map((e) {
               return {...e.value, 'rank': e.key + 1};
             }).toList();
+            // Fall back to in-memory seed routes when Supabase has nothing
+            if (ranked.isEmpty) {
+              final seedRoutes =
+                  ref.read(communityRouteProvider).value ?? [];
+              final seedThisMonth = seedRoutes
+                  .where((s) =>
+                      s.createdAt.year == now.year &&
+                      s.createdAt.month == now.month)
+                  .toList()
+                ..sort((a, b) => b.score.compareTo(a.score));
+              ranked = seedThisMonth
+                  .take(3)
+                  .toList()
+                  .asMap()
+                  .entries
+                  .map((e) => <String, dynamic>{
+                        'name': e.value.name,
+                        'author_name': e.value.authorName,
+                        'likes': e.value.likes,
+                        'downvotes': e.value.downvotes,
+                        'rank': e.key + 1,
+                      })
+                  .toList();
+            }
+            return ranked;
           });
     });
   }

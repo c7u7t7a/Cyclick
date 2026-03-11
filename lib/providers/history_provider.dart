@@ -34,11 +34,27 @@ class HistoryNotifier extends StateNotifier<List<RideHistoryModel>> {
     // Optimistically prepend to the UI.
     state = [ride, ...state];
 
+    final userId = _db.auth.currentUser?.id;
+
     try {
       await _db.from('ride_history').insert(ride.toJson());
     } catch (_) {
       // Row failed to save — UI already shows it, we silently swallow.
-      // In production you'd queue this for retry.
+    }
+
+    // Sync denormalized stats to profiles so friends can see them.
+    if (userId != null) {
+      try {
+        final totalKm = state.fold<double>(0, (s, r) => s + r.distanceKm);
+        final totalCo2 = state.fold<double>(0, (s, r) => s + r.co2SavedGrams);
+        await _db.from('profiles').update({
+          'total_km': totalKm,
+          'total_rides': state.length,
+          'total_co2_saved_grams': totalCo2,
+        }).eq('id', userId);
+      } catch (_) {
+        // Non-critical — stats will sync next load.
+      }
     }
   }
 

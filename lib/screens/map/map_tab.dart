@@ -146,6 +146,17 @@ class _MapTabState extends ConsumerState<MapTab> {
           heading,
           isActive && isNavigate,
         );
+        // ── Third-person camera follow during active ride ──────────────
+        if (isActive && isNavigate) {
+          _geoController.setCamera(
+            lat: currentPos.latitude,
+            lng: currentPos.longitude,
+            zoom: kNavigationZoom,
+            bearing: _smoothedHeading >= 0 ? _smoothedHeading : 0,
+            pitch: 60,
+            animate: true,
+          );
+        }
       }
 
       // Origin marker
@@ -272,6 +283,8 @@ class _MapTabState extends ConsumerState<MapTab> {
           ),
 
           // ── Search / Navigation Panel + Mode/Music controls ─────────────────
+          // Hidden during active ride — _ActiveRideHud has its own top bar.
+          if (!isActive)
           Positioned(
             top: 0,
             left: 0,
@@ -541,11 +554,14 @@ class _MapTabState extends ConsumerState<MapTab> {
       await ref.read(rideProvider.notifier).startRide();
       final pos = ref.read(currentPositionProvider);
       if (pos != null) {
-        _geoController.setCamera(
+        final startHeading = ref.read(currentHeadingProvider);
+      _geoController.setCamera(
           lat: pos.latitude,
           lng: pos.longitude,
           zoom: kNavigationZoom,
+          bearing: startHeading >= 0 ? startHeading : 0,
           pitch: 60,
+          animate: true,
         );
       }
     }
@@ -986,21 +1002,23 @@ class _ActiveRideHud extends ConsumerWidget {
                         ],
                       ),
                     ),
-                    // Report button
-                    GestureDetector(
-                      onTap: onReport,
-                      child: Container(
-                        width: 34,
-                        height: 34,
-                        decoration: BoxDecoration(
-                          color: Colors.orange.withAlpha(30),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                              color: Colors.orange.withAlpha(120), width: 1.5),
-                        ),
-                        child: const Icon(Icons.add_alert_rounded,
-                            color: Colors.orange, size: 17),
+                    // Report button — same pill style as the normal-map FAB
+                    ElevatedButton.icon(
+                      onPressed: onReport,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primary,
+                        foregroundColor: Colors.white,
+                        shape: const StadiumBorder(),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 6),
+                        elevation: 2,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        minimumSize: Size.zero,
                       ),
+                      icon: const Icon(Icons.add_alert_rounded, size: 16),
+                      label: const Text('Report',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 12)),
                     ),
                   ],
                 ),

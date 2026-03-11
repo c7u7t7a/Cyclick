@@ -71,6 +71,8 @@ class CommunityRoutesScreen extends ConsumerWidget {
                   ],
                 ),
               ),
+            // Top 3 this month
+            _TopThisMonth(routes: routes, isRo: isRo),
             // Route list
             Expanded(
               child: ListView.builder(
@@ -385,4 +387,113 @@ class _VoteButton extends StatelessWidget {
           ),
         ),
       );
+}
+
+// ─── Top 3 This Month ─────────────────────────────────────────────────────────
+class _TopThisMonth extends StatelessWidget {
+  final List<CommunityRoute> routes;
+  final bool isRo;
+  const _TopThisMonth({required this.routes, required this.isRo});
+
+  static const _medals = ['🥇', '🥈', '🥉'];
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final top = routes
+        .where((r) =>
+            r.createdAt.year == now.year && r.createdAt.month == now.month)
+        .toList()
+      ..sort((a, b) => b.score.compareTo(a.score));
+    final top3 = top.take(3).toList();
+
+    if (top3.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AppTheme.primary.withAlpha(18),
+            const Color(0xFF1A237E).withAlpha(12),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+            color: AppTheme.primary.withAlpha(40), width: 1),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.emoji_events_rounded,
+                  color: Color(0xFFFFC107), size: 18),
+              const SizedBox(width: 6),
+              Text(
+                isRo ? 'Top 3 luna aceasta' : 'Top 3 this month',
+                style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    color: Color(0xFF1A237E)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...top3.asMap().entries.map((e) {
+            final i = e.key;
+            final r = e.value;
+            final score = r.score;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                children: [
+                  Text(_medals[i],
+                      style: const TextStyle(fontSize: 18)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(r.name,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.w600, fontSize: 13),
+                            overflow: TextOverflow.ellipsis),
+                        Text(r.authorName,
+                            style: const TextStyle(
+                                fontSize: 11, color: Colors.black54)),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: score >= 0
+                          ? Colors.deepOrange.withAlpha(20)
+                          : const Color(0xFF5F4BB6).withAlpha(20),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      score >= 0 ? '+$score' : '$score',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                        color: score >= 0
+                            ? Colors.deepOrange
+                            : const Color(0xFF5F4BB6),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
 }

@@ -458,100 +458,6 @@ class _TopRoutesTabState extends State<_TopRoutesTab> {
     });
   }
 
-  void _sendToCityHall(List<Map<String, dynamic>> routes) {
-    final now = DateTime.now();
-    final monthStr = '${now.month}/${now.year}';
-    final buffer = StringBuffer();
-    buffer.writeln(
-        widget.isRo
-            ? 'Top 3 rute cicliste — $monthStr'
-            : 'Top 3 cycling routes — $monthStr');
-    buffer.writeln('─' * 40);
-    for (final r in routes) {
-      final rank = (r['rank'] as num).toInt();
-      final medal = rank <= 3 ? _medals[rank - 1] : '#$rank';
-      final name = r['name'] as String? ?? '-';
-      final author = r['author_name'] as String? ?? '-';
-      final score = (r['likes'] as num? ?? 0) - (r['downvotes'] as num? ?? 0);
-      buffer.writeln('$medal $name');
-      buffer.writeln(
-          widget.isRo ? '   Autor: $author • Scor: $score' : '   Author: $author • Score: $score');
-    }
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Row(
-          children: [
-            const Icon(Icons.account_balance_rounded, color: Color(0xFF1A237E)),
-            const SizedBox(width: 8),
-            Text(
-              widget.isRo ? 'Trimite la Primărie' : 'Send to City Hall',
-              style: const TextStyle(fontSize: 16),
-            ),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                widget.isRo
-                    ? 'Rezumatul următor poate fi transmis Primăriei Sectorului 2:'
-                    : 'The following summary can be forwarded to Sector 2 City Hall:',
-                style: const TextStyle(color: Colors.black54, fontSize: 13),
-              ),
-              const SizedBox(height: 12),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  buffer.toString(),
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(widget.isRo ? 'Închide' : 'Close'),
-          ),
-          FilledButton.icon(
-            style: FilledButton.styleFrom(backgroundColor: AppTheme.primary),
-            onPressed: () {
-              // Mark as sent in DB
-              Supabase.instance.client
-                  .from('community_routes')
-                  .update({'sent_to_city_hall': true})
-                  .inFilter('id', routes.map((r) => r['id'] as String).toList())
-                  .then((_) {}
-              );
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    widget.isRo
-                        ? 'Trimis! Actualizați email-ul separat.'
-                        : 'Marked as sent! Forward the summary via email.',
-                  ),
-                  backgroundColor: AppTheme.primary,
-                ),
-              );
-            },
-            icon: const Icon(Icons.send_rounded),
-            label: Text(widget.isRo ? 'Marchează trimis' : 'Mark as Sent'),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final isRo = widget.isRo;
@@ -698,27 +604,6 @@ class _TopRoutesTabState extends State<_TopRoutesTab> {
                       },
                     ),
             ),
-            // Send button
-            if (routes.isNotEmpty)
-              Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                child: FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF1A237E),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14)),
-                  ),
-                  onPressed: () => _sendToCityHall(routes),
-                  icon: const Icon(Icons.account_balance_rounded),
-                  label: Text(
-                    isRo ? 'Trimite la Primărie' : 'Send to City Hall',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w700, fontSize: 15),
-                  ),
-                ),
-              ),
           ],
         );
       },

@@ -96,45 +96,52 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
 class _BrandHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Container(
-          width: 72,
-          height: 72,
-          decoration: BoxDecoration(
-            color: AppTheme.primary,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: AppTheme.primary.withAlpha(80),
-                blurRadius: 20,
-                offset: const Offset(0, 8),
+    return Center(
+      child: Image.asset(
+        'assets/images/login_logo.png',
+        height: 200,
+        fit: BoxFit.contain,
+        errorBuilder: (_, __, ___) => Column(
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: AppTheme.primary,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppTheme.primary.withAlpha(80),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
               ),
-            ],
-          ),
-          child: const Icon(
-            Icons.directions_bike_rounded,
-            color: Colors.white,
-            size: 36,
-          ),
-        ),
-        const SizedBox(height: 16),
-        Text(
-          'Cyclick',
-          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-                color: AppTheme.onSurface,
-                letterSpacing: -0.5,
+              child: const Icon(
+                Icons.directions_bike_rounded,
+                color: Colors.white,
+                size: 36,
               ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Cyclick',
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.onSurface,
+                    letterSpacing: -0.5,
+                  ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Mobility & Safety in Sector 2',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: AppTheme.subtleText,
+                  ),
+            ),
+          ],
         ),
-        const SizedBox(height: 4),
-        Text(
-          'Pedaling Sector 2 Together',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: AppTheme.subtleText,
-              ),
-        ),
-      ],
+      ),
     );
   }
 }

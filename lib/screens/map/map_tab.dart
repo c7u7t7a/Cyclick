@@ -529,6 +529,10 @@ class _MapTabState extends ConsumerState<MapTab> {
   Future<void> _onStartRide() async {
     final weather = ref.read(weatherProvider).valueOrNull;
     final isRo = ref.read(isRomanianProvider);
+    // Proactively send weather push notification if conditions are bad
+    if (weather != null && weather.isAlert) {
+      NotificationService().showWeatherAlert(weather, isRo: isRo);
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -870,6 +874,22 @@ class _StartRideDialog extends StatelessWidget {
             text: isRo
                 ? 'Poartă casca de protecție'
                 : 'Wear your helmet',
+          ),
+          const SizedBox(height: 8),
+          _SafetyItem(
+            icon: Icons.flashlight_on_rounded,
+            color: Colors.amber.shade700,
+            text: isRo
+                ? 'Verifică luminile față / spate'
+                : 'Check front & rear lights',
+          ),
+          const SizedBox(height: 8),
+          _SafetyItem(
+            icon: Icons.security_rounded,
+            color: Colors.orange.shade700,
+            text: isRo
+                ? 'Poartă vestă reflectorizantă'
+                : 'Wear a reflective vest',
           ),
           if (hasBadWeather && weather != null) ...[
             const SizedBox(height: 8),

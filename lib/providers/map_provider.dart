@@ -83,6 +83,8 @@ class RideNotifier extends StateNotifier<RideState> {
   Future<void> startRide() async {
     await _location.requestPermission();
     _ride.start();
+    // Mark as active immediately so the HUD shows even without a GPS fix
+    state = state.copyWith(isActive: true);
 
     _location.startTracking(
       onPosition: (Position pos) {

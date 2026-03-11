@@ -187,21 +187,40 @@ class CommunityRouteNotifier
           r,
     ]);
 
+    final client = Supabase.instance.client;
+    final userId = client.auth.currentUser?.id;
+    if (userId == null) return;
+
     try {
       if (newVote == 0) {
         // Remove vote
-        await Supabase.instance.client
+        await client
             .from('route_votes')
             .delete()
             .eq('route_id', id)
-            .eq('user_id', Supabase.instance.client.auth.currentUser!.id);
-        // Recalculate counts
-        await Supabase.instance.client.rpc('cast_route_vote',
-            params: {'rid': id, 'v': v}); // will revert in DB
+            .eq('user_id', userId);
       } else {
-        await Supabase.instance.client
-            .rpc('cast_route_vote', params: {'rid': id, 'v': newVote});
+        // Upsert vote (bypasses broken RPC)
+        await client.from('route_votes').upsert(
+          {'route_id': id, 'user_id': userId, 'vote': newVote},
+          onConflict: 'route_id,user_id',
+        );
       }
+      // Recalculate counts directly
+      final ups = await client
+          .from('route_votes')
+          .select()
+          .eq('route_id', id)
+          .eq('vote', 1);
+      final downs = await client
+          .from('route_votes')
+          .select()
+          .eq('route_id', id)
+          .eq('vote', -1);
+      await client.from('community_routes').update({
+        'likes': (ups as List).length,
+        'downvotes': (downs as List).length,
+      }).eq('id', id);
     } catch (_) {
       await load(); // revert on error
     }

@@ -43,7 +43,7 @@ class WeatherData {
   }
 
   Color get color {
-    if (!isAlert) return const Color(0xFF4CAF50);
+    if (!isAlert) return const Color(0xFF01796F); // matches AppTheme.primary
     if (precipitationMm > 5 || _isBadCode(weatherCode)) return const Color(0xFFE53935);
     return const Color(0xFFFF9800);
   }

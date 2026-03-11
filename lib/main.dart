@@ -8,6 +8,7 @@ import 'core/constants.dart';
 import 'core/router.dart';
 import 'core/theme.dart';
 import 'providers/locale_provider.dart';
+import 'services/notification_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,6 +17,9 @@ Future<void> main() async {
     url: kSupabaseUrl,
     anonKey: kSupabaseAnonKey,
   );
+
+  // Initialize local notifications (non-blocking)
+  NotificationService().init().ignore();
 
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,

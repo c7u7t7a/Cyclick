@@ -19,6 +19,8 @@ class HistoryTab extends ConsumerWidget {
         rides.fold<double>(0, (sum, r) => sum + r.distanceKm);
     final totalCo2 =
         rides.fold<double>(0, (sum, r) => sum + r.co2SavedGrams);
+    final totalCals =
+        rides.fold<double>(0, (sum, r) => sum + r.distanceKm * 40);
     final totalRides = rides.length;
 
     return Scaffold(
@@ -48,6 +50,7 @@ class HistoryTab extends ConsumerWidget {
                   child: _SummaryBanner(
                     totalKm: totalKm,
                     totalCo2Grams: totalCo2,
+                    totalCalories: totalCals,
                     totalRides: totalRides,
                   ),
                 ),
@@ -71,17 +74,20 @@ class HistoryTab extends ConsumerWidget {
 class _SummaryBanner extends StatelessWidget {
   final double totalKm;
   final double totalCo2Grams;
+  final double totalCalories;
   final int totalRides;
 
   const _SummaryBanner({
     required this.totalKm,
     required this.totalCo2Grams,
+    required this.totalCalories,
     required this.totalRides,
   });
 
   @override
   Widget build(BuildContext context) {
     final co2Kg = (totalCo2Grams / 1000).toStringAsFixed(2);
+    final cals = totalCalories.toStringAsFixed(0);
 
     return Container(
       margin: const EdgeInsets.all(16),
@@ -101,13 +107,38 @@ class _SummaryBanner extends StatelessWidget {
           ),
         ],
       ),
-      child: Row(
+      child: Column(
         children: [
-          _BannerStat(value: totalKm.toStringAsFixed(1), label: 'Total km'),
-          _divider(),
-          _BannerStat(value: totalRides.toString(), label: 'Rides'),
-          _divider(),
-          _BannerStat(value: '$co2Kg kg', label: 'CO₂ Saved'),
+          Row(
+            children: [
+              _BannerStat(value: totalKm.toStringAsFixed(1), label: 'Total km'),
+              _divider(),
+              _BannerStat(value: totalRides.toString(), label: 'Rides'),
+              _divider(),
+              _BannerStat(value: '$co2Kg kg', label: 'CO₂ Saved'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white.withAlpha(30),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.local_fire_department_rounded,
+                    color: Colors.white, size: 18),
+                const SizedBox(width: 6),
+                Text('$cals kcal burned total',
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13)),
+              ],
+            ),
+          ),
         ],
       ),
     );

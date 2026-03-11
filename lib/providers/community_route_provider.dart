@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:latlong2/latlong.dart';
+import '../services/notification_service.dart';
 
 class CommunityRoute {
   final String id;
@@ -143,6 +144,8 @@ class CommunityRouteNotifier
   Future<void> addRoute(CommunityRoute route) async {
     final current = state.valueOrNull ?? [];
     state = AsyncValue.data([route, ...current]);
+    // Notify other cyclists about the new route
+    NotificationService().showNewRoute(route.name, route.authorName).ignore();
     try {
       final inserted = await Supabase.instance.client
           .from('community_routes')

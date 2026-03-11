@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' hide AuthException, AuthState;
 import '../../core/theme.dart';
 import '../../providers/auth_provider.dart';
 import '../../widgets/app_button.dart';
@@ -160,6 +161,7 @@ class _LoginFormState extends ConsumerState<_LoginForm> {
   final _emailCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   bool _obscure = true;
+  bool _rememberMe = true;
 
   @override
   void dispose() {
@@ -173,6 +175,64 @@ class _LoginFormState extends ConsumerState<_LoginForm> {
     await ref
         .read(authStateProvider.notifier)
         .signIn(_emailCtrl.text.trim(), _passCtrl.text);
+  }
+
+  void _showForgotPassword() {
+    final emailCtrl = TextEditingController(text: _emailCtrl.text.trim());
+    bool sending = false;
+    bool sent = false;
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setState) {
+        return AlertDialog(
+          title: const Text('Reset Password'),
+          content: sent
+              ? const Text(
+                  'Check your email for the password reset link.',
+                  style: TextStyle(color: AppTheme.subtleText),
+                )
+              : TextField(
+                  controller: emailCtrl,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: 'Email',
+                    prefixIcon: Icon(Icons.email_outlined),
+                  ),
+                ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Close')),
+            if (!sent)
+              FilledButton(
+                onPressed: sending
+                    ? null
+                    : () async {
+                        if (emailCtrl.text.trim().isEmpty) return;
+                        setState(() => sending = true);
+                        try {
+                          await Supabase.instance.client.auth
+                              .resetPasswordForEmail(emailCtrl.text.trim());
+                          setState(() {
+                            sent = true;
+                            sending = false;
+                          });
+                        } catch (_) {
+                          setState(() => sending = false);
+                        }
+                      },
+                child: sending
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Text('Send link'),
+              ),
+          ],
+        );
+      }),
+    );
   }
 
   @override
@@ -227,7 +287,31 @@ class _LoginFormState extends ConsumerState<_LoginForm> {
             validator: (v) =>
                 (v == null || v.isEmpty) ? 'Password is required' : null,
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 8),
+          // ── Remember me + Forgot password ─────────────────────────────
+          Row(
+            children: [
+              Checkbox(
+                value: _rememberMe,
+                onChanged: (v) => setState(() => _rememberMe = v ?? true),
+                activeColor: AppTheme.primary,
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              const Text('Remember me',
+                  style: TextStyle(fontSize: 13, color: AppTheme.subtleText)),
+              const Spacer(),
+              TextButton(
+                style: TextButton.styleFrom(
+                  minimumSize: Size.zero,
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                ),
+                onPressed: _showForgotPassword,
+                child: const Text('Forgot password?',
+                    style: TextStyle(fontSize: 13)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
           AppButton(
             label: 'Log In',
             isLoading: isLoading,

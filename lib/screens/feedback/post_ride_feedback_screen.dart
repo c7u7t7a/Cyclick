@@ -226,25 +226,52 @@ class _RideSummaryCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
+      child: Column(
         children: [
-          _SummaryStat(
-            icon: Icons.straighten_rounded,
-            value: '${ride.distanceKm.toStringAsFixed(2)} km',
-            label: 'Distance',
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _SummaryStat(
+                icon: Icons.straighten_rounded,
+                value: '${ride.distanceKm.toStringAsFixed(2)} km',
+                label: 'Distance',
+              ),
+              _VerticalDivider(),
+              _SummaryStat(
+                icon: Icons.timer_outlined,
+                value: ride.formattedDuration,
+                label: 'Duration',
+              ),
+              _VerticalDivider(),
+              _SummaryStat(
+                icon: Icons.eco_rounded,
+                value: ride.formattedCo2,
+                label: 'CO₂ Saved',
+              ),
+            ],
           ),
-          _VerticalDivider(),
-          _SummaryStat(
-            icon: Icons.timer_outlined,
-            value: ride.formattedDuration,
-            label: 'Duration',
-          ),
-          _VerticalDivider(),
-          _SummaryStat(
-            icon: Icons.eco_rounded,
-            value: ride.formattedCo2,
-            label: 'CO₂ Saved',
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.white.withAlpha(30),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.local_fire_department_rounded,
+                    color: Colors.white, size: 16),
+                const SizedBox(width: 6),
+                Text(
+                  '${(ride.distanceKm * 40).toStringAsFixed(0)} kcal burned',
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13),
+                ),
+              ],
+            ),
           ),
         ],
       ),

@@ -48,6 +48,11 @@
 	<!-- Location permissions required by geolocator -->
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Cyclick needs your location to show your position on the map and track your rides.</string>
+	<!-- Health usage descriptions -->
+	<key>NSHealthShareUsageDescription</key>
+	<string>Cyclick reads your fitness data to show calories burned per ride.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Cyclick saves your cycling workouts to Apple Health.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Cyclick uses your location in the background to accurately track your cycling route.</string>
 	<key>NSLocationAlwaysUsageDescription</key>

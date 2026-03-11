@@ -41,6 +41,9 @@ dependencies:
   # Audio (music player)
   just_audio: ^0.9.36
 
+  # Local push notifications (new routes, blocked routes)
+  flutter_local_notifications: ^17.2.3
+
   # Utilities
   uuid: ^4.3.3
   intl: ^0.20.2

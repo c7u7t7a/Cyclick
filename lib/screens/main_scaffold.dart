@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/locale_provider.dart';
 import '../providers/music_provider.dart';
-import '../widgets/music_player_bar.dart';
 import 'map/map_tab.dart';
 import 'history/history_tab.dart';
 import 'communities/communities_tab.dart';
@@ -32,17 +31,9 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
     ref.watch(musicProvider); // keep music state alive
 
     return Scaffold(
-      body: Column(
-        children: [
-          Expanded(
-            child: IndexedStack(
-              index: _currentIndex,
-              children: _tabs,
-            ),
-          ),
-          // Music player bar (always visible)
-          const MusicPlayerBar(),
-        ],
+      body: IndexedStack(
+        index: _currentIndex,
+        children: _tabs,
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,

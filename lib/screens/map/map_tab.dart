@@ -13,11 +13,13 @@ import '../../providers/map_provider.dart';
 import '../../providers/rental_provider.dart';
 import '../../providers/parking_provider.dart';
 import '../../providers/locale_provider.dart';
+import '../../services/notification_service.dart';
 import '../../services/routing_service.dart';
 import '../../widgets/weather_banner.dart';
 import 'active_ride_card.dart';
 import 'report_bottom_sheet.dart';
 import '../../providers/cycling_routes_layer_provider.dart';
+import '../../providers/music_provider.dart';
 import '../../core/mapbox_token.dart';
 
 enum _MapMode { navigate, rent }
@@ -82,7 +84,9 @@ class _MapTabState extends ConsumerState<MapTab> {
       body: Stack(
         children: [
           // ── Map ─────────────────────────────────────────────────────────────
-          FlutterMap(
+          Builder(builder: (context) {
+            final isActive = ref.watch(rideProvider).isActive;
+            Widget mapWidget = FlutterMap(
             mapController: _mapController,
             options: MapOptions(
               initialCenter:
@@ -222,66 +226,104 @@ class _MapTabState extends ConsumerState<MapTab> {
               if (currentPos != null)
                 MarkerLayer(markers: [_buildUserMarker(currentPos)]),
             ],
-          ),
+          );
+            // Apply 3D perspective tilt during active navigation
+            if (isActive && isNavigate) {
+              mapWidget = ClipRect(
+                child: Transform(
+                  transform: Matrix4.identity()
+                    ..setEntry(3, 2, 0.0008)
+                    ..rotateX(0.35),
+                  alignment: Alignment.bottomCenter,
+                  child: mapWidget,
+                ),
+              );
+            }
+            return mapWidget;
+          }),
 
-          // ── Search Bar + Weather + Origin/Dest picker ─────────────────────────
+          // ── Search / Navigation Panel + Mode/Music controls ─────────────────
           SafeArea(
             child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _SearchBar(
-                    controller: _searchCtrl,
-                    onDestinationSet: (latlng) {
-                      if (isNavigate) {
-                        ref
-                            .read(navigationDestinationProvider.notifier)
-                            .state = latlng;
-                      }
-                    },
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: (isNavigate && !ref.watch(rideProvider).isActive)
+                            ? _NavigationSearchPanel(
+                                origin: origin,
+                                destination: destination,
+                                pickStep: _pickStep,
+                                isRo: isRo,
+                                currentPos: currentPos,
+                                onOriginSet: (latlng) {
+                                  ref.read(rideOriginProvider.notifier).state =
+                                      latlng;
+                                  setState(() => _pickStep = _PickStep.none);
+                                },
+                                onDestinationSet: (latlng) {
+                                  ref
+                                      .read(navigationDestinationProvider
+                                          .notifier)
+                                      .state = latlng;
+                                  setState(() => _pickStep = _PickStep.none);
+                                },
+                                onPickOriginFromMap: () => setState(
+                                    () => _pickStep = _PickStep.pickingOrigin),
+                                onPickDestFromMap: () => setState(
+                                    () => _pickStep = _PickStep.pickingDest),
+                                onClearOrigin: () {
+                                  ref.read(rideOriginProvider.notifier).state =
+                                      null;
+                                  setState(() => _pickStep = _PickStep.none);
+                                },
+                                onClearDest: () {
+                                  ref
+                                      .read(navigationDestinationProvider
+                                          .notifier)
+                                      .state = null;
+                                  setState(() => _pickStep = _PickStep.none);
+                                },
+                              )
+                            : _SearchBar(
+                                controller: _searchCtrl,
+                                onDestinationSet: (latlng) {
+                                  if (isNavigate) {
+                                    ref
+                                        .read(navigationDestinationProvider
+                                            .notifier)
+                                        .state = latlng;
+                                  }
+                                },
+                              ),
+                      ),
+                      if (_mapMode != null) ...[
+                        const SizedBox(width: 8),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            _ModeChip(
+                              mode: _mapMode!,
+                              isRo: isRo,
+                              onTap: _showModePicker,
+                            ),
+                            const SizedBox(height: 6),
+                            const _MusicToggleButton(),
+                          ],
+                        ),
+                      ],
+                    ],
                   ),
                   const SizedBox(height: 6),
                   const WeatherBanner(),
-                  if (isNavigate && !ref.watch(rideProvider).isActive) ...[
-                    const SizedBox(height: 8),
-                    _RoutePickerRow(
-                      origin: origin,
-                      destination: destination,
-                      pickStep: _pickStep,
-                      isRo: isRo,
-                      onPickOrigin: () =>
-                          setState(() => _pickStep = _PickStep.pickingOrigin),
-                      onPickDest: () =>
-                          setState(() => _pickStep = _PickStep.pickingDest),
-                      onClearOrigin: () {
-                        ref.read(rideOriginProvider.notifier).state = null;
-                        setState(() => _pickStep = _PickStep.none);
-                      },
-                      onClearDest: () {
-                        ref.read(navigationDestinationProvider.notifier)
-                            .state = null;
-                        setState(() => _pickStep = _PickStep.none);
-                      },
-                    ),
-                  ],
                 ],
               ),
             ),
           ),
-
-          // ── Mode toggle chip ─────────────────────────────────────────────────
-          if (_mapMode != null)
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 100,
-              right: 16,
-              child: _ModeChip(
-                mode: _mapMode!,
-                isRo: isRo,
-                onTap: _showModePicker,
-              ),
-            ),
 
           // ── Navigate: Active Ride Card ───────────────────────────────────────
           if (isNavigate && origin != null && destination != null)
@@ -417,18 +459,22 @@ class _MapTabState extends ConsumerState<MapTab> {
               child: const Icon(Icons.my_location_rounded),
             ),
           ),
+
+          // ── Navigate: Report FAB (inside Stack, no overlap) ──────────────────
+          if (isNavigate && (origin == null || destination == null))
+            Positioned(
+              right: 16,
+              bottom: 24,
+              child: FloatingActionButton.extended(
+                heroTag: 'report',
+                onPressed: _showReportSheet,
+                icon: const Icon(Icons.add_alert_rounded),
+                label: const Text('Report',
+                    style: TextStyle(fontWeight: FontWeight.w600)),
+              ),
+            ),
         ],
       ),
-      // ── Navigate: Report FAB ──────────────────────────────────────────────────
-      floatingActionButton: (isNavigate && (origin == null || destination == null))
-          ? FloatingActionButton.extended(
-              heroTag: 'report',
-              onPressed: _showReportSheet,
-              icon: const Icon(Icons.add_alert_rounded),
-              label: const Text('Report',
-                  style: TextStyle(fontWeight: FontWeight.w600)),
-            )
-          : null,
     );
   }
 
@@ -538,6 +584,10 @@ class _MapTabState extends ConsumerState<MapTab> {
               'reported_by': userId.isNotEmpty ? userId : null,
               'description': null,
             });
+            // Notify about blocked lanes
+            if (type == ReportType.blockedLane) {
+              NotificationService().showBlockedLane('your current location').ignore();
+            }
           }
         },
       ),
@@ -626,129 +676,239 @@ class _MapTabState extends ConsumerState<MapTab> {
   }
 }
 
-// ─── Route Picker Row (start + destination chips) ──────────────────────────────────
-class _RoutePickerRow extends StatelessWidget {
+// ─── Navigation Search Panel (integrated FROM/TO with quick-pick) ─────────────
+class _NavigationSearchPanel extends ConsumerWidget {
   final LatLng? origin;
   final LatLng? destination;
   final _PickStep pickStep;
   final bool isRo;
-  final VoidCallback onPickOrigin;
-  final VoidCallback onPickDest;
+  final LatLng? currentPos;
+  final void Function(LatLng) onOriginSet;
+  final void Function(LatLng) onDestinationSet;
+  final VoidCallback onPickOriginFromMap;
+  final VoidCallback onPickDestFromMap;
   final VoidCallback onClearOrigin;
   final VoidCallback onClearDest;
 
-  const _RoutePickerRow({
+  const _NavigationSearchPanel({
     required this.origin,
     required this.destination,
     required this.pickStep,
     required this.isRo,
-    required this.onPickOrigin,
-    required this.onPickDest,
+    required this.currentPos,
+    required this.onOriginSet,
+    required this.onDestinationSet,
+    required this.onPickOriginFromMap,
+    required this.onPickDestFromMap,
     required this.onClearOrigin,
     required this.onClearDest,
   });
 
+  String _fmtLatLng(LatLng l) =>
+      '${l.latitude.toStringAsFixed(4)}, ${l.longitude.toStringAsFixed(4)}';
+
   @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: _PointChip(
-            icon: Icons.trip_origin_rounded,
-            color: Colors.green,
-            label: origin != null
-                ? '${origin!.latitude.toStringAsFixed(4)}, ${origin!.longitude.toStringAsFixed(4)}'
-                : (pickStep == _PickStep.pickingOrigin
-                    ? (isRo ? 'Atinge harta…' : 'Tap map…')
-                    : (isRo ? 'Start' : 'Start')),
-            isActive: pickStep == _PickStep.pickingOrigin,
-            isSet: origin != null,
-            onTap: onPickOrigin,
-            onClear: origin != null ? onClearOrigin : null,
-          ),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final pickingOrigin = pickStep == _PickStep.pickingOrigin;
+    final pickingDest = pickStep == _PickStep.pickingDest;
+
+    return Material(
+      elevation: 5,
+      shadowColor: Colors.black26,
+      borderRadius: BorderRadius.circular(AppTheme.radius),
+      color: AppTheme.surface,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // FROM row
+            Row(
+              children: [
+                const Icon(Icons.trip_origin_rounded,
+                    color: Colors.green, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: origin != null
+                      ? Text(_fmtLatLng(origin!),
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 12),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis)
+                      : pickingOrigin
+                          ? Text(
+                              isRo ? 'Atinge harta…' : 'Tap map…',
+                              style: TextStyle(
+                                  color: Colors.green.shade700,
+                                  fontStyle: FontStyle.italic,
+                                  fontSize: 12),
+                            )
+                          : Wrap(
+                              spacing: 6,
+                              children: [
+                                _QuickChip(
+                                  label: isRo ? 'Locația mea' : 'My location',
+                                  icon: Icons.my_location_rounded,
+                                  color: Colors.green,
+                                  onTap: currentPos != null
+                                      ? () => onOriginSet(currentPos!)
+                                      : null,
+                                ),
+                                _QuickChip(
+                                  label: isRo ? 'Hartă' : 'Map',
+                                  icon: Icons.touch_app_rounded,
+                                  color: Colors.green,
+                                  onTap: onPickOriginFromMap,
+                                ),
+                              ],
+                            ),
+                ),
+                if (origin != null)
+                  GestureDetector(
+                    onTap: onClearOrigin,
+                    child: const Icon(Icons.close_rounded,
+                        size: 16, color: Colors.black38),
+                  ),
+              ],
+            ),
+            const Divider(height: 14, indent: 26),
+            // TO row
+            Row(
+              children: [
+                const Icon(Icons.location_pin, color: Colors.red, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: destination != null
+                      ? Text(_fmtLatLng(destination!),
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 12),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis)
+                      : pickingDest
+                          ? Text(
+                              isRo ? 'Atinge harta…' : 'Tap map…',
+                              style: TextStyle(
+                                  color: Colors.red.shade700,
+                                  fontStyle: FontStyle.italic,
+                                  fontSize: 12),
+                            )
+                          : Row(
+                              children: [
+                                Expanded(
+                                  child: SizedBox(
+                                    height: 28,
+                                    child: TextField(
+                                      style: const TextStyle(fontSize: 12),
+                                      decoration: InputDecoration(
+                                        hintText: isRo
+                                            ? 'Destinație...'
+                                            : 'Destination...',
+                                        hintStyle: const TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.black38),
+                                        border: InputBorder.none,
+                                        isDense: true,
+                                        contentPadding: EdgeInsets.zero,
+                                      ),
+                                      onSubmitted: (v) {
+                                        // Geocoding placeholder — snap to Sector 2 centre
+                                        onDestinationSet(const LatLng(
+                                            kSector2Lat + 0.01,
+                                            kSector2Lon + 0.01));
+                                      },
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                _QuickChip(
+                                  label: isRo ? 'Hartă' : 'Map',
+                                  icon: Icons.touch_app_rounded,
+                                  color: Colors.red,
+                                  onTap: onPickDestFromMap,
+                                ),
+                              ],
+                            ),
+                ),
+                if (destination != null)
+                  GestureDetector(
+                    onTap: onClearDest,
+                    child: const Icon(Icons.close_rounded,
+                        size: 16, color: Colors.black38),
+                  ),
+              ],
+            ),
+          ],
         ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _PointChip(
-            icon: Icons.location_pin,
-            color: Colors.red,
-            label: destination != null
-                ? '${destination!.latitude.toStringAsFixed(4)}, ${destination!.longitude.toStringAsFixed(4)}'
-                : (pickStep == _PickStep.pickingDest
-                    ? (isRo ? 'Atinge harta…' : 'Tap map…')
-                    : (isRo ? 'Destinație' : 'Destination')),
-            isActive: pickStep == _PickStep.pickingDest,
-            isSet: destination != null,
-            onTap: onPickDest,
-            onClear: destination != null ? onClearDest : null,
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
 
-class _PointChip extends StatelessWidget {
+class _QuickChip extends StatelessWidget {
+  final String label;
   final IconData icon;
   final Color color;
-  final String label;
-  final bool isActive;
-  final bool isSet;
-  final VoidCallback onTap;
-  final VoidCallback? onClear;
+  final VoidCallback? onTap;
 
-  const _PointChip({
+  const _QuickChip({
+    required this.label,
     required this.icon,
     required this.color,
-    required this.label,
-    required this.isActive,
-    required this.isSet,
-    required this.onTap,
-    this.onClear,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: isActive
-              ? color.withAlpha(30)
-              : Colors.white.withAlpha(230),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isActive ? color : (isSet ? color.withAlpha(180) : Colors.black26),
-            width: isActive ? 2 : 1,
-          ),
-          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4)],
+          color: color.withAlpha(20),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withAlpha(80)),
         ),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: color, size: 16),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                label,
+            Icon(icon, color: color, size: 11),
+            const SizedBox(width: 4),
+            Text(label,
                 style: TextStyle(
-                  fontSize: 11,
-                  fontWeight:
-                      isSet ? FontWeight.w600 : FontWeight.w400,
-                  color: isSet ? Colors.black87 : Colors.black54,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            if (onClear != null)
-              GestureDetector(
-                onTap: onClear,
-                child: const Icon(Icons.close_rounded,
-                    size: 14, color: Colors.black38),
-              ),
+                    color: color,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600)),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Music Toggle Button (mini floating icon on map) ─────────────────────────
+class _MusicToggleButton extends ConsumerWidget {
+  const _MusicToggleButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isPlaying = ref.watch(musicProvider).isPlaying;
+    return GestureDetector(
+      onTap: () => ref.read(musicProvider.notifier).playPause(),
+      child: Container(
+        width: 38,
+        height: 38,
+        decoration: BoxDecoration(
+          color: isPlaying ? AppTheme.primary : Colors.white,
+          shape: BoxShape.circle,
+          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6)],
+          border: Border.all(
+            color: isPlaying ? AppTheme.primary : Colors.black12,
+          ),
+        ),
+        child: Icon(
+          isPlaying ? Icons.music_note_rounded : Icons.music_off_rounded,
+          color: isPlaying ? Colors.white : Colors.black38,
+          size: 18,
         ),
       ),
     );

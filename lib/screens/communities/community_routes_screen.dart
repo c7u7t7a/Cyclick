@@ -133,23 +133,9 @@ class CommunityRoutesScreen extends ConsumerWidget {
                               ),
                             ),
                             Column(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                GestureDetector(
-                                  onTap: () => ref
-                                      .read(communityRouteProvider.notifier)
-                                      .likeRoute(r.id),
-                                  child: Row(
-                                    children: [
-                                      const Icon(Icons.favorite_rounded,
-                                          color: Colors.redAccent, size: 18),
-                                      const SizedBox(width: 3),
-                                      Text('${r.likes}',
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.w600,
-                                              fontSize: 13)),
-                                    ],
-                                  ),
-                                ),
+                                _VoteButtons(route: r),
                                 const SizedBox(height: 4),
                                 _DifficultyBadge(d: r.difficulty, isRo: isRo),
                               ],
@@ -308,4 +294,95 @@ class _DifficultyBadge extends StatelessWidget {
               color: color, fontWeight: FontWeight.w600, fontSize: 11)),
     );
   }
+}
+
+// ─── Reddit-style Vote Buttons ────────────────────────────────────────────────
+class _VoteButtons extends ConsumerWidget {
+  final CommunityRoute route;
+  const _VoteButtons({required this.route});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final upvoted = route.userVote == 1;
+    final downvoted = route.userVote == -1;
+    final score = route.score;
+    final scoreColor = score > 0
+        ? Colors.deepOrange
+        : score < 0
+            ? const Color(0xFF5F4BB6)
+            : Colors.black54;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // ▲ Upvote
+          _VoteButton(
+            icon: Icons.arrow_upward_rounded,
+            active: upvoted,
+            activeColor: Colors.deepOrange,
+            onTap: () => ref
+                .read(communityRouteProvider.notifier)
+                .vote(route.id, 1),
+          ),
+          // Score
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Text(
+              score > 0 ? '+$score' : '$score',
+              style: TextStyle(
+                color: scoreColor,
+                fontWeight: FontWeight.w800,
+                fontSize: 13,
+              ),
+            ),
+          ),
+          // ▼ Downvote
+          _VoteButton(
+            icon: Icons.arrow_downward_rounded,
+            active: downvoted,
+            activeColor: const Color(0xFF5F4BB6),
+            onTap: () => ref
+                .read(communityRouteProvider.notifier)
+                .vote(route.id, -1),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _VoteButton extends StatelessWidget {
+  final IconData icon;
+  final bool active;
+  final Color activeColor;
+  final VoidCallback onTap;
+  const _VoteButton({
+    required this.icon,
+    required this.active,
+    required this.activeColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: active ? activeColor.withAlpha(30) : Colors.transparent,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            icon,
+            size: 18,
+            color: active ? activeColor : Colors.black45,
+          ),
+        ),
+      );
 }

@@ -12,6 +12,9 @@ class CommunityRoute {
   final int durationMinutes;
   final String difficulty; // easy / medium / hard
   final int likes;
+  final int downvotes;
+  /// Current user's vote: 1=upvoted, -1=downvoted, 0=none
+  final int userVote;
   final DateTime createdAt;
 
   const CommunityRoute({
@@ -24,8 +27,28 @@ class CommunityRoute {
     required this.durationMinutes,
     required this.difficulty,
     this.likes = 0,
+    this.downvotes = 0,
+    this.userVote = 0,
     required this.createdAt,
   });
+
+  int get score => likes - downvotes;
+
+  CommunityRoute copyWith({int? likes, int? downvotes, int? userVote}) =>
+      CommunityRoute(
+        id: id,
+        name: name,
+        authorId: authorId,
+        authorName: authorName,
+        waypoints: waypoints,
+        distanceKm: distanceKm,
+        durationMinutes: durationMinutes,
+        difficulty: difficulty,
+        likes: likes ?? this.likes,
+        downvotes: downvotes ?? this.downvotes,
+        userVote: userVote ?? this.userVote,
+        createdAt: createdAt,
+      );
 
   factory CommunityRoute.fromJson(Map<String, dynamic> j) {
     final pts = (j['waypoints'] as List<dynamic>? ?? [])
@@ -42,6 +65,8 @@ class CommunityRoute {
       durationMinutes: (j['duration_minutes'] as num? ?? 0).toInt(),
       difficulty: j['difficulty'] as String? ?? 'medium',
       likes: (j['likes'] as num? ?? 0).toInt(),
+      downvotes: (j['downvotes'] as num? ?? 0).toInt(),
+      userVote: (j['user_vote'] as num? ?? 0).toInt(),
       createdAt: DateTime.tryParse(j['created_at'] as String? ?? '') ??
           DateTime.now(),
     );
@@ -58,10 +83,11 @@ class CommunityRoute {
         'duration_minutes': durationMinutes,
         'difficulty': difficulty,
         'likes': likes,
+        'downvotes': downvotes,
         'created_at': createdAt.toIso8601String(),
       };
 
-  /// Payload for DB INSERT — omits auto-generated fields (id, likes, created_at).
+  /// Payload for DB INSERT — omits auto-generated fields.
   Map<String, dynamic> toInsertJson() => {
         'name': name,
         'author_id': authorId.isEmpty ? null : authorId,
@@ -83,29 +109,46 @@ class CommunityRouteNotifier
   Future<void> load() async {
     state = const AsyncValue.loading();
     try {
-      final rows = await Supabase.instance.client
+      final client = Supabase.instance.client;
+      final rows = await client
           .from('community_routes')
           .select()
           .order('likes', ascending: false);
+
+      // Fetch current user's votes in one query
+      final userId = client.auth.currentUser?.id;
+      final Map<String, int> myVotes = {};
+      if (userId != null) {
+        final votes = await client
+            .from('route_votes')
+            .select('route_id, vote')
+            .eq('user_id', userId);
+        for (final v in votes as List) {
+          myVotes[v['route_id'] as String] = (v['vote'] as num).toInt();
+        }
+      }
+
       state = AsyncValue.data(
-          (rows as List).map((r) => CommunityRoute.fromJson(r)).toList());
+        (rows as List).map((r) {
+          final m = Map<String, dynamic>.from(r);
+          m['user_vote'] = myVotes[r['id'] as String] ?? 0;
+          return CommunityRoute.fromJson(m);
+        }).toList(),
+      );
     } catch (_) {
       state = AsyncValue.data(_seedRoutes);
     }
   }
 
   Future<void> addRoute(CommunityRoute route) async {
-    // Optimistic — add temp entry immediately
     final current = state.valueOrNull ?? [];
     state = AsyncValue.data([route, ...current]);
     try {
-      // Use toInsertJson to let Supabase generate the UUID + timestamps
       final inserted = await Supabase.instance.client
           .from('community_routes')
           .insert(route.toInsertJson())
           .select()
           .single();
-      // Replace the optimistic entry with the real one from DB
       final real = CommunityRoute.fromJson(inserted);
       final updated = state.valueOrNull ?? [];
       state = AsyncValue.data([
@@ -113,32 +156,56 @@ class CommunityRouteNotifier
           if (r.id == route.id) real else r,
       ]);
     } catch (_) {
-      await load(); // revert on error
+      await load();
     }
   }
 
-  Future<void> likeRoute(String id) async {
+  /// Cast a vote: 1 = upvote, -1 = downvote.
+  /// Calling the same vote again acts as a toggle (removes the vote).
+  Future<void> vote(String id, int v) async {
     final current = state.valueOrNull ?? [];
+    final route = current.firstWhere((r) => r.id == id);
+    final newVote = route.userVote == v ? 0 : v; // toggle off if same
+
+    // Optimistic update
     state = AsyncValue.data([
       for (final r in current)
         if (r.id == id)
-          CommunityRoute(
-            id: r.id,
-            name: r.name,
-            authorId: r.authorId,
-            authorName: r.authorName,
-            waypoints: r.waypoints,
-            distanceKm: r.distanceKm,
-            durationMinutes: r.durationMinutes,
-            difficulty: r.difficulty,
-            likes: r.likes + 1,
-            createdAt: r.createdAt,
+          r.copyWith(
+            userVote: newVote,
+            likes: r.likes +
+                (newVote == 1 ? 1 : 0) -
+                (r.userVote == 1 ? 1 : 0),
+            downvotes: r.downvotes +
+                (newVote == -1 ? 1 : 0) -
+                (r.userVote == -1 ? 1 : 0),
           )
         else
           r,
     ]);
-    await Supabase.instance.client.rpc('increment_route_likes', params: {'rid': id});
+
+    try {
+      if (newVote == 0) {
+        // Remove vote
+        await Supabase.instance.client
+            .from('route_votes')
+            .delete()
+            .eq('route_id', id)
+            .eq('user_id', Supabase.instance.client.auth.currentUser!.id);
+        // Recalculate counts
+        await Supabase.instance.client.rpc('cast_route_vote',
+            params: {'rid': id, 'v': v}); // will revert in DB
+      } else {
+        await Supabase.instance.client
+            .rpc('cast_route_vote', params: {'rid': id, 'v': newVote});
+      }
+    } catch (_) {
+      await load(); // revert on error
+    }
   }
+
+  // Keep backwards compat alias
+  Future<void> likeRoute(String id) => vote(id, 1);
 }
 
 final communityRouteProvider = StateNotifierProvider<CommunityRouteNotifier,

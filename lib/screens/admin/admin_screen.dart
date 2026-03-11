@@ -36,7 +36,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 3, vsync: this);
+    _tabs = TabController(length: 4, vsync: this);
   }
 
   @override
@@ -64,6 +64,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
             Tab(text: isRo ? 'Feedback' : 'Feedback'),
             Tab(text: isRo ? 'Închirieri' : 'Rentals'),
             Tab(text: isRo ? 'Parcări' : 'Parking'),
+            Tab(text: isRo ? 'Top Rute' : 'Top Routes'),
           ],
         ),
       ),
@@ -103,6 +104,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen>
               _FeedbackTab(isRo: isRo),
               _RentalAdminTab(isRo: isRo),
               _ParkingAdminTab(isRo: isRo),
+              _TopRoutesTab(isRo: isRo),
             ],
           );
         },
@@ -419,3 +421,307 @@ class _ParkingAdminTab extends ConsumerWidget {
 
 const double kSector2LatFallback = 44.4557;
 const double kSector2LonFallback = 26.1162;
+
+// ─── Top Routes Admin Tab ────────────────────────────────────────────────────
+class _TopRoutesTab extends StatefulWidget {
+  final bool isRo;
+  const _TopRoutesTab({required this.isRo});
+
+  @override
+  State<_TopRoutesTab> createState() => _TopRoutesTabState();
+}
+
+class _TopRoutesTabState extends State<_TopRoutesTab> {
+  late Future<List<Map<String, dynamic>>> _future;
+
+  static const _medals = ['🥇', '🥈', '🥉'];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+  }
+
+  void _fetch() {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, 1).toIso8601String();
+    final end = DateTime(now.year, now.month + 1, 1).toIso8601String();
+    setState(() {
+      _future = Supabase.instance.client
+          .from('top_routes_by_month')
+          .select()
+          .gte('month', start)
+          .lt('month', end)
+          .lte('rank', 3)
+          .order('rank')
+          .then((r) => List<Map<String, dynamic>>.from(r as List));
+    });
+  }
+
+  void _sendToCityHall(List<Map<String, dynamic>> routes) {
+    final now = DateTime.now();
+    final monthStr = '${now.month}/${now.year}';
+    final buffer = StringBuffer();
+    buffer.writeln(
+        widget.isRo
+            ? 'Top 3 rute cicliste — $monthStr'
+            : 'Top 3 cycling routes — $monthStr');
+    buffer.writeln('─' * 40);
+    for (final r in routes) {
+      final rank = (r['rank'] as num).toInt();
+      final medal = rank <= 3 ? _medals[rank - 1] : '#$rank';
+      final name = r['name'] as String? ?? '-';
+      final author = r['author_name'] as String? ?? '-';
+      final score = (r['likes'] as num? ?? 0) - (r['downvotes'] as num? ?? 0);
+      buffer.writeln('$medal $name');
+      buffer.writeln(
+          widget.isRo ? '   Autor: $author • Scor: $score' : '   Author: $author • Score: $score');
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Row(
+          children: [
+            const Icon(Icons.account_balance_rounded, color: Color(0xFF1A237E)),
+            const SizedBox(width: 8),
+            Text(
+              widget.isRo ? 'Trimite la Primărie' : 'Send to City Hall',
+              style: const TextStyle(fontSize: 16),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                widget.isRo
+                    ? 'Rezumatul următor poate fi transmis Primăriei Sectorului 2:'
+                    : 'The following summary can be forwarded to Sector 2 City Hall:',
+                style: const TextStyle(color: Colors.black54, fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  buffer.toString(),
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(widget.isRo ? 'Închide' : 'Close'),
+          ),
+          FilledButton.icon(
+            style: FilledButton.styleFrom(backgroundColor: AppTheme.primary),
+            onPressed: () {
+              // Mark as sent in DB
+              Supabase.instance.client
+                  .from('community_routes')
+                  .update({'sent_to_city_hall': true})
+                  .inFilter('id', routes.map((r) => r['id'] as String).toList())
+                  .then((_) {}
+              );
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    widget.isRo
+                        ? 'Trimis! Actualizați email-ul separat.'
+                        : 'Marked as sent! Forward the summary via email.',
+                  ),
+                  backgroundColor: AppTheme.primary,
+                ),
+              );
+            },
+            icon: const Icon(Icons.send_rounded),
+            label: Text(widget.isRo ? 'Marchează trimis' : 'Mark as Sent'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isRo = widget.isRo;
+    final now = DateTime.now();
+    final monthLabel = [
+      '', 'Ian', 'Feb', 'Mar', 'Apr', 'Mai', 'Iun',
+      'Iul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    final monthEN = [
+      '', 'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    final heading = isRo
+        ? 'Top 3 rute — ${monthLabel[now.month]} ${now.year}'
+        : 'Top 3 routes — ${monthEN[now.month]} ${now.year}';
+
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _future,
+      builder: (ctx, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final routes = snap.data ?? [];
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Header
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              color: AppTheme.primary.withAlpha(15),
+              child: Row(
+                children: [
+                  const Icon(Icons.emoji_events_rounded,
+                      color: Color(0xFFFFC107), size: 26),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      heading,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 16),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.refresh_rounded),
+                    onPressed: _fetch,
+                    tooltip: isRo ? 'Reîncarcă' : 'Refresh',
+                  ),
+                ],
+              ),
+            ),
+            // Route list
+            Expanded(
+              child: routes.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.route_rounded,
+                              size: 56, color: Colors.black26),
+                          const SizedBox(height: 12),
+                          Text(
+                            isRo
+                                ? 'Nicio rută votată luna aceasta.'
+                                : 'No routes voted this month.',
+                            style: const TextStyle(
+                                color: Colors.black45, fontSize: 15),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: routes.length,
+                      itemBuilder: (_, i) {
+                        final r = routes[i];
+                        final rank = (r['rank'] as num).toInt();
+                        final medal = rank <= 3 ? _medals[rank - 1] : '#$rank';
+                        final name = r['name'] as String? ?? '-';
+                        final author = r['author_name'] as String? ?? '-';
+                        final likes = r['likes'] as num? ?? 0;
+                        final downvotes = r['downvotes'] as num? ?? 0;
+                        final score = likes - downvotes;
+
+                        return Card(
+                          margin: const EdgeInsets.symmetric(vertical: 6),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16)),
+                          elevation: rank == 1 ? 4 : 1,
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Row(
+                              children: [
+                                Text(medal,
+                                    style: const TextStyle(fontSize: 32)),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        name,
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 15),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        isRo
+                                            ? 'de $author'
+                                            : 'by $author',
+                                        style: const TextStyle(
+                                            color: Colors.black54,
+                                            fontSize: 12),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: score >= 0
+                                        ? Colors.deepOrange.withAlpha(20)
+                                        : const Color(0xFF5F4BB6).withAlpha(20),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    score >= 0 ? '+$score' : '$score',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 14,
+                                      color: score >= 0
+                                          ? Colors.deepOrange
+                                          : const Color(0xFF5F4BB6),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+            // Send button
+            if (routes.isNotEmpty)
+              Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF1A237E),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14)),
+                  ),
+                  onPressed: () => _sendToCityHall(routes),
+                  icon: const Icon(Icons.account_balance_rounded),
+                  label: Text(
+                    isRo ? 'Trimite la Primărie' : 'Send to City Hall',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700, fontSize: 15),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}

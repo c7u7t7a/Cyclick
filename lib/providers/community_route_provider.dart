@@ -60,6 +60,18 @@ class CommunityRoute {
         'likes': likes,
         'created_at': createdAt.toIso8601String(),
       };
+
+  /// Payload for DB INSERT — omits auto-generated fields (id, likes, created_at).
+  Map<String, dynamic> toInsertJson() => {
+        'name': name,
+        'author_id': authorId.isEmpty ? null : authorId,
+        'author_name': authorName,
+        'waypoints':
+            waypoints.map((p) => {'lat': p.latitude, 'lng': p.longitude}).toList(),
+        'distance_km': distanceKm,
+        'duration_minutes': durationMinutes,
+        'difficulty': difficulty,
+      };
 }
 
 class CommunityRouteNotifier
@@ -83,13 +95,23 @@ class CommunityRouteNotifier
   }
 
   Future<void> addRoute(CommunityRoute route) async {
-    // Optimistic
+    // Optimistic — add temp entry immediately
     final current = state.valueOrNull ?? [];
     state = AsyncValue.data([route, ...current]);
     try {
-      await Supabase.instance.client
+      // Use toInsertJson to let Supabase generate the UUID + timestamps
+      final inserted = await Supabase.instance.client
           .from('community_routes')
-          .insert(route.toJson());
+          .insert(route.toInsertJson())
+          .select()
+          .single();
+      // Replace the optimistic entry with the real one from DB
+      final real = CommunityRoute.fromJson(inserted);
+      final updated = state.valueOrNull ?? [];
+      state = AsyncValue.data([
+        for (final r in updated)
+          if (r.id == route.id) real else r,
+      ]);
     } catch (_) {
       await load(); // revert on error
     }

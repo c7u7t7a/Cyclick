@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/theme.dart';
 import '../../providers/auth_provider.dart';
@@ -7,6 +8,9 @@ import '../../providers/history_provider.dart';
 import '../../providers/locale_provider.dart';
 import '../../widgets/app_button.dart';
 import '../admin/admin_screen.dart';
+import 'notifications_screen.dart';
+import 'privacy_screen.dart';
+import 'city_hall_reports_screen.dart';
 
 /// User settings, stats, and bicycle details.
 class ProfileTab extends ConsumerWidget {
@@ -21,6 +25,71 @@ class ProfileTab extends ConsumerWidget {
     'BMX',
     'Other',
   ];
+
+  void _showAbout(BuildContext context, bool isRo) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                color: AppTheme.primary,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: const Icon(Icons.pedal_bike_rounded,
+                  color: Colors.white, size: 40),
+            ),
+            const SizedBox(height: 16),
+            const Text('Cyclick',
+                style: TextStyle(
+                    fontSize: 22, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 4),
+            const Text('v1.0.0',
+                style:
+                    TextStyle(fontSize: 13, color: AppTheme.subtleText)),
+            const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 8),
+            Text(
+              isRo
+                  ? 'Waze pentru ciclism urban — harta vie a Sectorului 2, București.\n\nConstruit pentru Hackathonul Living Map, martie 2026.'
+                  : 'Waze for urban cycling — the living map of Sector 2, Bucharest.\n\nBuilt for the Living Map Hackathon, March 2026.',
+              textAlign: TextAlign.center,
+              style:
+                  const TextStyle(fontSize: 13, color: AppTheme.subtleText),
+            ),
+            const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: const [
+                Icon(Icons.map_rounded, size: 14, color: AppTheme.subtleText),
+                SizedBox(width: 4),
+                Text('OpenStreetMap  •  OpenMeteo  •  OSRM',
+                    style: TextStyle(
+                        fontSize: 11, color: AppTheme.subtleText)),
+              ],
+            ),
+            const SizedBox(height: 4),
+            const Text('Supabase  •  Flutter  •  Riverpod',
+                style:
+                    TextStyle(fontSize: 11, color: AppTheme.subtleText)),
+          ],
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(isRo ? 'Închide' : 'Close')),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -153,9 +222,11 @@ class ProfileTab extends ConsumerWidget {
                         child: _BicycleDropdown(
                           current: user.bicycleType,
                           types: _bicycleTypes,
-                          onChanged: (type) {
-                            // TODO: Update user profile in Supabase:
-                            // supabase.from('profiles').update({'bicycle_type': type}).eq('id', user.id)
+                          onChanged: (type) async {
+                            await Supabase.instance.client
+                                .from('profiles')
+                                .update({'bicycle_type': type})
+                                .eq('id', user.id);
                           },
                         ),
                       ),
@@ -188,21 +259,30 @@ class ProfileTab extends ConsumerWidget {
                   icon: Icons.notifications_outlined,
                   title: isRomanian ? 'Notificări curse' : 'Ride Notifications',
                   subtitle: isRomanian ? 'Reamintiri de grup și alerte de siguranță' : 'Group ride reminders and safety alerts',
-                  onTap: () {},
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const NotificationsScreen()),
+                  ),
                 ),
                 const Divider(height: 1, indent: 56),
                 _SettingsTile(
                   icon: Icons.privacy_tip_outlined,
                   title: isRomanian ? 'Confidențialitate' : 'Privacy',
                   subtitle: isRomanian ? 'Gestionează preferințele de localizare' : 'Manage your location sharing preferences',
-                  onTap: () {},
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const PrivacyScreen()),
+                  ),
                 ),
                 const Divider(height: 1, indent: 56),
                 _SettingsTile(
                   icon: Icons.account_balance_outlined,
                   title: isRomanian ? 'Rapoarte Primărie' : 'City Hall Reports',
                   subtitle: isRomanian ? 'Vezi toate sesizările tale de infrastructură' : 'View all your infrastructure suggestions submitted',
-                  onTap: () {},
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const CityHallReportsScreen()),
+                  ),
                 ),
                 const Divider(height: 1, indent: 56),
                 // Admin Panel link
@@ -220,7 +300,7 @@ class ProfileTab extends ConsumerWidget {
                   icon: Icons.info_outline_rounded,
                   title: 'About Cyclick',
                   subtitle: 'v1.0.0 · Sector 2 Living Map Hackathon',
-                  onTap: () {},
+                  onTap: () => _showAbout(context, isRomanian),
                 ),
               ],
             ),

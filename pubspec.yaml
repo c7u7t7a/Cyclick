@@ -70,3 +70,4 @@ flutter:
   assets:
     - assets/images/
     - assets/icon/
+    - arcgis/rute_buccccc.geojson

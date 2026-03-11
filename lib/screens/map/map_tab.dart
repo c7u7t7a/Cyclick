@@ -17,6 +17,7 @@ import '../../services/routing_service.dart';
 import '../../widgets/weather_banner.dart';
 import 'active_ride_card.dart';
 import 'report_bottom_sheet.dart';
+import '../../providers/cycling_routes_layer_provider.dart';
 
 enum _MapMode { navigate, rent }
 
@@ -37,6 +38,7 @@ class _MapTabState extends ConsumerState<MapTab> {
   RentalStation? _selectedStation;
   List<LatLng> _walkingRoute = [];
   int _walkingMinutes = 0;
+  CyclingRouteFeature? _selectedRoute;
 
   @override
   void initState() {
@@ -65,6 +67,9 @@ class _MapTabState extends ConsumerState<MapTab> {
     final isRo = ref.watch(isRomanianProvider);
     final isRent = _mapMode == _MapMode.rent;
     final isNavigate = _mapMode == _MapMode.navigate;
+    final routes =
+        ref.watch(cyclingRoutesProvider).valueOrNull ?? const [];
+    final showRoutes = ref.watch(showCyclingRoutesProvider);
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -84,6 +89,22 @@ class _MapTabState extends ConsumerState<MapTab> {
                 urlTemplate: kOsmTileUrl,
                 userAgentPackageName: 'com.cyclick.app',
               ),
+              // ── Cycling infrastructure risk layer (always under markers) ────
+              if (showRoutes && routes.isNotEmpty)
+                PolylineLayer(
+                  polylines: [
+                    for (final f in routes)
+                      for (final seg in f.segments)
+                        if (seg.length >= 2)
+                          Polyline(
+                            points: seg,
+                            color: f.color.withAlpha(204),
+                            strokeWidth: 4,
+                            strokeCap: StrokeCap.round,
+                            strokeJoin: StrokeJoin.round,
+                          ),
+                  ],
+                ),
               if (isNavigate) ...[
                 MarkerLayer(markers: _buildReportMarkers(reports)),
                 MarkerLayer(
@@ -257,27 +278,95 @@ class _MapTabState extends ConsumerState<MapTab> {
               ),
             ),
 
-          // ── Legend (navigate = parking only, rent = rental + parking) ─────────
+          // ── Legend (+ risk layer toggle) ────────────────────────────────────
           if (isNavigate || isRent)
             Positioned(
-              bottom: (isRent && _selectedStation != null) ? 180 : 24,
+              bottom: _selectedRoute != null
+                  ? 188
+                  : (isRent && _selectedStation != null)
+                      ? 180
+                      : 24,
               left: 16,
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (isRent) ...[
-                    _LegendChip(
-                      color: const Color(0xFF1565C0),
-                      icon: Icons.pedal_bike_rounded,
-                      label: isRo ? 'Închiriere' : 'Rental',
+                  // Risk map toggle chip
+                  GestureDetector(
+                    onTap: () => ref
+                        .read(showCyclingRoutesProvider.notifier)
+                        .state = !showRoutes,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: showRoutes
+                            ? const Color(0xFFF44336).withAlpha(25)
+                            : Colors.white.withAlpha(220),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                            color: showRoutes
+                                ? const Color(0xFFF44336)
+                                : Colors.black26),
+                        boxShadow: const [
+                          BoxShadow(color: Colors.black12, blurRadius: 4)
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.route_rounded,
+                              color: showRoutes
+                                  ? const Color(0xFFF44336)
+                                  : Colors.black38,
+                              size: 16),
+                          const SizedBox(width: 4),
+                          Text(
+                            isRo ? 'Hartă risc' : 'Risk Map',
+                            style: TextStyle(
+                              color: showRoutes
+                                  ? const Color(0xFFF44336)
+                                  : Colors.black38,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(width: 8),
-                  ],
-                  _LegendChip(
-                    color: const Color(0xFF6A1B9A),
-                    icon: Icons.local_parking_rounded,
-                    label: isRo ? 'Parcare' : 'Parking',
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      if (isRent) ...[
+                        _LegendChip(
+                          color: const Color(0xFF1565C0),
+                          icon: Icons.pedal_bike_rounded,
+                          label: isRo ? 'Închiriere' : 'Rental',
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      _LegendChip(
+                        color: const Color(0xFF6A1B9A),
+                        icon: Icons.local_parking_rounded,
+                        label: isRo ? 'Parcare' : 'Parking',
+                      ),
+                    ],
                   ),
                 ],
+              ),
+            ),
+
+          // ── Route Info Card (shown when user taps a cycling route) ───────────
+          if (_selectedRoute != null)
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: _RouteInfoCard(
+                route: _selectedRoute!,
+                isRo: isRo,
+                onClose: () => setState(() => _selectedRoute = null),
               ),
             ),
 
@@ -312,6 +401,17 @@ class _MapTabState extends ConsumerState<MapTab> {
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
   void _onMapTap(LatLng latlng) {
+    // Prioritise route info tap over navigation destination
+    if (ref.read(showCyclingRoutesProvider)) {
+      final routes =
+          ref.read(cyclingRoutesProvider).valueOrNull ?? const [];
+      final hit = nearestRoute(routes, latlng);
+      if (hit != null) {
+        setState(() => _selectedRoute = hit);
+        return;
+      }
+    }
+    setState(() => _selectedRoute = null);
     if (_mapMode == _MapMode.navigate && !ref.read(rideProvider).isActive) {
       ref.read(navigationDestinationProvider.notifier).state = latlng;
     }
@@ -852,6 +952,125 @@ class _SearchBar extends StatelessWidget {
           onDestinationSet(const LatLng(kSector2Lat + 0.01, kSector2Lon + 0.01));
           FocusScope.of(context).unfocus();
         },
+      ),
+    );
+  }
+}
+
+// ─── Route Info Card ──────────────────────────────────────────────────────────
+class _RouteInfoCard extends StatelessWidget {
+  final CyclingRouteFeature route;
+  final bool isRo;
+  final VoidCallback onClose;
+
+  const _RouteInfoCard({
+    required this.route,
+    required this.isRo,
+    required this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final label = riskLabel(route.riskClass, isRo: isRo);
+    final km = route.lengthKm;
+    final lengthStr =
+        km < 1 ? '${(km * 1000).round()} m' : '${km.toStringAsFixed(2)} km';
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border(left: BorderSide(color: route.color, width: 5)),
+        boxShadow: const [
+          BoxShadow(
+              color: Colors.black26,
+              blurRadius: 16,
+              offset: Offset(0, -4))
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
+        child: Row(
+          children: [
+            // Risk class badge
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: route.color.withAlpha(30),
+                shape: BoxShape.circle,
+              ),
+              child: Center(
+                child: Text(
+                  '${route.riskClass ?? '?'}',
+                  style: TextStyle(
+                    color: route.color,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 20,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    isRo
+                        ? 'Infrastructură ciclism'
+                        : 'Cycling Infrastructure',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w700, fontSize: 15),
+                  ),
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: route.color.withAlpha(25),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                              color: route.color.withAlpha(120), width: 1),
+                        ),
+                        child: Text(
+                          label,
+                          style: TextStyle(
+                            color: route.color,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Icon(Icons.straighten_rounded,
+                          size: 13, color: Colors.black45),
+                      const SizedBox(width: 3),
+                      Text(
+                        lengthStr,
+                        style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.black54,
+                            fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close_rounded, size: 20),
+              onPressed: onClose,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              color: Colors.black45,
+            ),
+          ],
+        ),
       ),
     );
   }

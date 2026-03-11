@@ -90,15 +90,26 @@ class _FeedbackTab extends ConsumerWidget {
   final bool isRo;
   const _FeedbackTab({required this.isRo});
 
+  static Future<List<Map<String, dynamic>>> _loadFeedback() async {
+    try {
+      // Tries SECURITY DEFINER RPC that bypasses RLS to see all users' feedback.
+      // Run migration 006_admin_functions.sql in Supabase dashboard to enable this.
+      final r = await Supabase.instance.client.rpc('get_all_feedback');
+      return List<Map<String, dynamic>>.from(r as List);
+    } catch (_) {
+      // Fallback: only own rides (RLS restriction)
+      final r = await Supabase.instance.client
+          .from('ride_history')
+          .select('id, started_at, distance_km, safety_rating, feedback_tags, city_hall_message')
+          .order('started_at', ascending: false);
+      return List<Map<String, dynamic>>.from(r as List);
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return FutureBuilder<List<Map<String, dynamic>>>(
-      future: Supabase.instance.client
-          .from('ride_history')
-          .select('id, started_at, distance_km, safety_rating, feedback_tags, city_hall_message')
-          .order('started_at', ascending: false)
-          .limit(50)
-          .then((r) => List<Map<String, dynamic>>.from(r as List)),
+      future: _loadFeedback(),
       builder: (ctx, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -416,17 +427,32 @@ class _TopRoutesTabState extends State<_TopRoutesTab> {
 
   void _fetch() {
     final now = DateTime.now();
-    final start = DateTime(now.year, now.month, 1).toIso8601String();
-    final end = DateTime(now.year, now.month + 1, 1).toIso8601String();
     setState(() {
       _future = Supabase.instance.client
-          .from('top_routes_by_month')
-          .select()
-          .gte('month', start)
-          .lt('month', end)
-          .lte('rank', 3)
-          .order('rank')
-          .then((r) => List<Map<String, dynamic>>.from(r as List));
+          .from('community_routes')
+          .select('id, name, author_name, likes, downvotes, created_at')
+          .order('likes', ascending: false)
+          .limit(100)
+          .then((r) {
+            final rows = List<Map<String, dynamic>>.from(r as List);
+            // Filter to current month and compute score
+            final thisMonth = rows.where((row) {
+              final dt = DateTime.tryParse(row['created_at'] as String? ?? '');
+              return dt != null &&
+                  dt.year == now.year &&
+                  dt.month == now.month;
+            }).toList();
+            thisMonth.sort((a, b) {
+              final sa = ((a['likes'] as num? ?? 0) -
+                  (a['downvotes'] as num? ?? 0));
+              final sb = ((b['likes'] as num? ?? 0) -
+                  (b['downvotes'] as num? ?? 0));
+              return sb.compareTo(sa);
+            });
+            return thisMonth.take(3).toList().asMap().entries.map((e) {
+              return {...e.value, 'rank': e.key + 1};
+            }).toList();
+          });
     });
   }
 

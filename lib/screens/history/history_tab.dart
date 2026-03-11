@@ -152,13 +152,13 @@ class _BannerStat extends StatelessWidget {
 }
 
 // ─── Ride Card ─────────────────────────────────────────────────────────────────
-class _RideCard extends StatelessWidget {
+class _RideCard extends ConsumerWidget {
   final RideHistoryModel ride;
 
   const _RideCard({required this.ride});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final dateStr =
         DateFormat('EEE, d MMM y · HH:mm').format(ride.startedAt);
 
@@ -180,6 +180,31 @@ class _RideCard extends StatelessWidget {
                 const Spacer(),
                 if (ride.safetyRating != null)
                   _StarRating(rating: ride.safetyRating!),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () => _showEditSheet(context, ref),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primary.withAlpha(15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.edit_rounded,
+                            size: 12, color: AppTheme.primary),
+                        SizedBox(width: 4),
+                        Text('Edit',
+                            style: TextStyle(
+                                fontSize: 11,
+                                color: AppTheme.primary,
+                                fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -246,6 +271,15 @@ class _RideCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  void _showEditSheet(BuildContext context, WidgetRef ref) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _EditRideSheet(ride: ride, ref: ref),
     );
   }
 }
@@ -337,6 +371,180 @@ class _EmptyState extends StatelessWidget {
             textAlign: TextAlign.center,
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─── Edit Ride Sheet ──────────────────────────────────────────────────────────
+class _EditRideSheet extends StatefulWidget {
+  final RideHistoryModel ride;
+  final WidgetRef ref;
+  const _EditRideSheet({required this.ride, required this.ref});
+
+  @override
+  State<_EditRideSheet> createState() => _EditRideSheetState();
+}
+
+class _EditRideSheetState extends State<_EditRideSheet> {
+  late double _rating;
+  late List<String> _tags;
+  late final TextEditingController _msgCtrl;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _rating = widget.ride.safetyRating ?? 3.0;
+    _tags = List<String>.from(widget.ride.feedbackTags);
+    _msgCtrl =
+        TextEditingController(text: widget.ride.cityHallMessage ?? '');
+  }
+
+  @override
+  void dispose() {
+    _msgCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    final updated = widget.ride.copyWith(
+      safetyRating: _rating,
+      feedbackTags: _tags,
+      cityHallMessage:
+          _msgCtrl.text.trim().isEmpty ? null : _msgCtrl.text.trim(),
+    );
+    await widget.ref.read(historyProvider.notifier).updateRide(updated);
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Handle
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                    color: Colors.black12,
+                    borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text('Edit Ride',
+                style: TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 20),
+
+            // Star rating
+            const Text('Safety Rating',
+                style: TextStyle(
+                    fontWeight: FontWeight.w600, fontSize: 13)),
+            const SizedBox(height: 8),
+            Row(
+              children: List.generate(5, (i) {
+                final star = i + 1;
+                return GestureDetector(
+                  onTap: () => setState(() => _rating = star.toDouble()),
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Icon(
+                      star <= _rating
+                          ? Icons.star_rounded
+                          : Icons.star_outline_rounded,
+                      color: Colors.amber,
+                      size: 32,
+                    ),
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 20),
+
+            // Tags
+            const Text('Feedback Tags',
+                style: TextStyle(
+                    fontWeight: FontWeight.w600, fontSize: 13)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: FeedbackTag.all.map((tag) {
+                final selected = _tags.contains(tag);
+                return FilterChip(
+                  label: Text(tag, style: const TextStyle(fontSize: 12)),
+                  selected: selected,
+                  selectedColor: AppTheme.primary.withAlpha(30),
+                  checkmarkColor: AppTheme.primary,
+                  side: BorderSide(
+                      color: selected
+                          ? AppTheme.primary
+                          : Colors.black26),
+                  onSelected: (v) => setState(() {
+                    if (v) {
+                      _tags.add(tag);
+                    } else {
+                      _tags.remove(tag);
+                    }
+                  }),
+                );
+              }).toList(),
+            ),
+            const SizedBox(height: 20),
+
+            // City hall message
+            const Text('Message to City Hall',
+                style: TextStyle(
+                    fontWeight: FontWeight.w600, fontSize: 13)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _msgCtrl,
+              maxLines: 3,
+              decoration: InputDecoration(
+                hintText: 'Optional infrastructure feedback...',
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                contentPadding: const EdgeInsets.all(12),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14))),
+                onPressed: _saving ? null : _save,
+                child: _saving
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: Colors.white))
+                    : const Text('Save Changes',
+                        style: TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 15)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

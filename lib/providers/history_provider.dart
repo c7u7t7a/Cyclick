@@ -42,11 +42,20 @@ class HistoryNotifier extends StateNotifier<List<RideHistoryModel>> {
     }
   }
 
-  void updateRide(RideHistoryModel updated) {
+  Future<void> updateRide(RideHistoryModel updated) async {
     state = [
       for (final r in state)
         if (r.id == updated.id) updated else r,
     ];
+    try {
+      await _db.from('ride_history').update({
+        'safety_rating': updated.safetyRating,
+        'feedback_tags': updated.feedbackTags,
+        'city_hall_message': updated.cityHallMessage,
+      }).eq('id', updated.id);
+    } catch (_) {
+      // silently ignore — already updated in memory
+    }
   }
 }
 

@@ -62,6 +62,7 @@ class _MapTabState extends ConsumerState<MapTab> {
 
   // ── Last-synced state (avoids redundant JS calls) ─────────────────────────
   LatLng? _lastPos;
+  String? _lastActiveCamKey; // gate for 3rd-person camera during active ride
   String? _lastReportsHash;
   String? _lastRentalsHash;
   String? _lastParkingsHash;
@@ -113,22 +114,12 @@ class _MapTabState extends ConsumerState<MapTab> {
     final routes =
         ref.watch(cyclingRoutesProvider).valueOrNull ?? const [];
 
-    // ── Heading-based map rotation (Waze style) ─────────────────────────────
+    // ── Heading smoothing — invalidates camera key so post-frame re-fires ────
     final isActive = ref.watch(rideProvider).isActive;
     if (isActive && isNavigate && heading >= 0) {
       if (_smoothedHeading < 0 || (heading - _smoothedHeading).abs() > 3) {
         _smoothedHeading = heading;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          _geoController.setBearing(heading);
-          _geoController.setCamera(
-            lat: ref.read(currentPositionProvider)?.latitude ?? kSector2Lat,
-            lng: ref.read(currentPositionProvider)?.longitude ?? kSector2Lon,
-            zoom: kNavigationZoom,
-            bearing: heading,
-            pitch: 60,
-          );
-        });
+        _lastActiveCamKey = null; // post-frame will update camera + bearing
       }
     }
     final showRoutes = ref.watch(showCyclingRoutesProvider);
@@ -137,7 +128,7 @@ class _MapTabState extends ConsumerState<MapTab> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
 
-      // User position
+      // User puck position
       if (currentPos != null && currentPos != _lastPos) {
         _lastPos = currentPos;
         _geoController.setUserMarker(
@@ -146,8 +137,17 @@ class _MapTabState extends ConsumerState<MapTab> {
           heading,
           isActive && isNavigate,
         );
-        // ── Third-person camera follow during active ride ──────────────
-        if (isActive && isNavigate) {
+        // Position changed — invalidate camera key to trigger follow
+        if (isActive && isNavigate) _lastActiveCamKey = null;
+      }
+
+      // ── 3rd-person camera follow (active ride only) ────────────────────────
+      if (isActive && isNavigate && currentPos != null) {
+        final camKey = '${currentPos.latitude.toStringAsFixed(5)}_'
+            '${currentPos.longitude.toStringAsFixed(5)}_'
+            '${_smoothedHeading.toStringAsFixed(1)}';
+        if (camKey != _lastActiveCamKey) {
+          _lastActiveCamKey = camKey;
           _geoController.setCamera(
             lat: currentPos.latitude,
             lng: currentPos.longitude,
@@ -551,11 +551,14 @@ class _MapTabState extends ConsumerState<MapTab> {
       builder: (_) => _StartRideDialog(weather: weather, isRo: isRo),
     );
     if (confirmed == true && mounted) {
+      // Reset last-seen pos + cam key so camera-follow fires on next build
+      _lastPos = null;
+      _lastActiveCamKey = null;
       await ref.read(rideProvider.notifier).startRide();
       final pos = ref.read(currentPositionProvider);
-      if (pos != null) {
+      if (pos != null && mounted) {
         final startHeading = ref.read(currentHeadingProvider);
-      _geoController.setCamera(
+        _geoController.setCamera(
           lat: pos.latitude,
           lng: pos.longitude,
           zoom: kNavigationZoom,

@@ -1,7 +1,6 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
+import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme.dart';
 import '../../providers/rental_provider.dart';
@@ -9,6 +8,7 @@ import '../../providers/parking_provider.dart';
 import '../../providers/locale_provider.dart';
 import '../../providers/history_provider.dart';
 import '../../providers/community_route_provider.dart';
+import '../../widgets/mapbox_gl_widget.dart';
 
 /// Emails that always have admin access (hackathon bypass).
 const _hardcodedAdmins = {'lazarcristi720@gmail.com'};
@@ -235,8 +235,15 @@ class _RentalAdminTab extends ConsumerWidget {
       children: [
         FilledButton.icon(
           style: FilledButton.styleFrom(backgroundColor: AppTheme.primary),
-          onPressed: () => _showAddStation(context, ref, isRo),
-          icon: const Icon(Icons.add),
+          onPressed: () async {
+            final picked = await Navigator.of(context).push<LatLng>(
+              MaterialPageRoute(builder: (_) => const _PinPickerScreen()),
+            );
+            if (picked != null && context.mounted) {
+              _showAddStation(context, ref, isRo, picked);
+            }
+          },
+          icon: const Icon(Icons.add_location_alt_rounded),
           label: Text(isRo ? 'Adaugă stație' : 'Add station'),
         ),
         const SizedBox(height: 12),
@@ -263,77 +270,55 @@ class _RentalAdminTab extends ConsumerWidget {
     );
   }
 
-  void _showAddStation(
-      BuildContext ctx, WidgetRef ref, bool isRo) {
+  void _showAddStation(BuildContext ctx, WidgetRef ref, bool isRo, LatLng picked) {
     final nameCtrl = TextEditingController();
-    final addressCtrl = TextEditingController();
-    final latCtrl = TextEditingController(text: '44.45');
-    final lonCtrl = TextEditingController(text: '26.11');
     final docksCtrl = TextEditingController(text: '10');
-    bool isGeocoding = false;
-
-    Future<void> geocode(StateSetter setState) async {
-      final q = addressCtrl.text.trim();
-      if (q.isEmpty) return;
-      setState(() => isGeocoding = true);
-      try {
-        final uri = Uri.parse(
-            'https://nominatim.openstreetmap.org/search?q=${Uri.encodeComponent(q)}&format=json&limit=1&viewbox=26.0,44.5,26.2,44.4&bounded=0');
-        final resp = await http.get(uri, headers: {'User-Agent': 'Cyclick/1.0'});
-        if (resp.statusCode == 200) {
-          final data = jsonDecode(resp.body) as List<dynamic>;
-          if (data.isNotEmpty) {
-            latCtrl.text = (data[0]['lat'] as String);
-            lonCtrl.text = (data[0]['lon'] as String);
-          }
-        }
-      } catch (_) {}
-      setState(() => isGeocoding = false);
-    }
 
     showDialog(
       context: ctx,
-      builder: (dialogCtx) => StatefulBuilder(
-        builder: (dialogCtx, setState) => AlertDialog(
-        title:
-            Text(isRo ? 'Stație nouă' : 'New Station'),
+      builder: (dialogCtx) => AlertDialog(
+        title: Text(isRo ? 'Stație nouă' : 'New Station'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Name')),
-            const SizedBox(height: 8),
+            TextField(
+              controller: nameCtrl,
+              autofocus: true,
+              decoration: InputDecoration(labelText: isRo ? 'Nume' : 'Name'),
+            ),
+            const SizedBox(height: 10),
             Row(
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: addressCtrl,
-                    decoration: InputDecoration(labelText: isRo ? 'Caută adresă' : 'Search address'),
-                    onSubmitted: (_) => geocode(setState),
-                  ),
+                const Icon(Icons.location_on_rounded, color: AppTheme.primary, size: 18),
+                const SizedBox(width: 6),
+                Text(
+                  '${picked.latitude.toStringAsFixed(5)}, ${picked.longitude.toStringAsFixed(5)}',
+                  style: const TextStyle(fontSize: 12, color: Colors.black54),
                 ),
-                const SizedBox(width: 8),
-                isGeocoding
-                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
-                    : IconButton(
-                        icon: const Icon(Icons.search_rounded),
-                        onPressed: () => geocode(setState),
-                      ),
               ],
             ),
-            TextField(controller: latCtrl, decoration: const InputDecoration(labelText: 'Latitude'), keyboardType: TextInputType.number),
-            TextField(controller: lonCtrl, decoration: const InputDecoration(labelText: 'Longitude'), keyboardType: TextInputType.number),
-            TextField(controller: docksCtrl, decoration: const InputDecoration(labelText: 'Total docks'), keyboardType: TextInputType.number),
+            const SizedBox(height: 10),
+            TextField(
+              controller: docksCtrl,
+              decoration: InputDecoration(labelText: isRo ? 'Locuri totale' : 'Total docks'),
+              keyboardType: TextInputType.number,
+            ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx),
+            child: Text(isRo ? 'Anulează' : 'Cancel'),
+          ),
           FilledButton(
             onPressed: () {
               ref.read(rentalProvider.notifier).addStation(RentalStation(
                 id: 'rs-${DateTime.now().millisecondsSinceEpoch}',
-                name: nameCtrl.text.trim(),
-                latitude: double.tryParse(latCtrl.text) ?? kSector2LatFallback,
-                longitude: double.tryParse(lonCtrl.text) ?? kSector2LonFallback,
+                name: nameCtrl.text.trim().isEmpty
+                    ? 'Stație ${DateTime.now().millisecond}'
+                    : nameCtrl.text.trim(),
+                latitude: picked.latitude,
+                longitude: picked.longitude,
                 availableBikes: 0,
                 totalDocks: int.tryParse(docksCtrl.text) ?? 10,
               ));
@@ -342,7 +327,6 @@ class _RentalAdminTab extends ConsumerWidget {
             child: Text(isRo ? 'Salvează' : 'Save'),
           ),
         ],
-      ),
       ),
     );
   }
@@ -389,8 +373,15 @@ class _ParkingAdminTab extends ConsumerWidget {
       children: [
         FilledButton.icon(
           style: FilledButton.styleFrom(backgroundColor: AppTheme.primary),
-          onPressed: () => _showAddParking(context, ref, isRo),
-          icon: const Icon(Icons.add),
+          onPressed: () async {
+            final picked = await Navigator.of(context).push<LatLng>(
+              MaterialPageRoute(builder: (_) => const _PinPickerScreen()),
+            );
+            if (picked != null && context.mounted) {
+              _showAddParking(context, ref, isRo, picked);
+            }
+          },
+          icon: const Icon(Icons.add_location_alt_rounded),
           label: Text(isRo ? 'Adaugă parcare' : 'Add parking'),
         ),
         const SizedBox(height: 12),
@@ -412,33 +403,10 @@ class _ParkingAdminTab extends ConsumerWidget {
     );
   }
 
-  void _showAddParking(BuildContext ctx, WidgetRef ref, bool isRo) {
+  void _showAddParking(BuildContext ctx, WidgetRef ref, bool isRo, LatLng picked) {
     final nameCtrl = TextEditingController();
-    final addressCtrl = TextEditingController();
-    final latCtrl = TextEditingController(text: '44.45');
-    final lonCtrl = TextEditingController(text: '26.11');
     final capCtrl = TextEditingController(text: '10');
     bool covered = false;
-    bool isGeocoding = false;
-
-    Future<void> geocode(StateSetter setState) async {
-      final q = addressCtrl.text.trim();
-      if (q.isEmpty) return;
-      setState(() => isGeocoding = true);
-      try {
-        final uri = Uri.parse(
-            'https://nominatim.openstreetmap.org/search?q=${Uri.encodeComponent(q)}&format=json&limit=1&viewbox=26.0,44.5,26.2,44.4&bounded=0');
-        final resp = await http.get(uri, headers: {'User-Agent': 'Cyclick/1.0'});
-        if (resp.statusCode == 200) {
-          final data = jsonDecode(resp.body) as List<dynamic>;
-          if (data.isNotEmpty) {
-            latCtrl.text = (data[0]['lat'] as String);
-            lonCtrl.text = (data[0]['lon'] as String);
-          }
-        }
-      } catch (_) {}
-      setState(() => isGeocoding = false);
-    }
 
     showDialog(
       context: ctx,
@@ -448,29 +416,28 @@ class _ParkingAdminTab extends ConsumerWidget {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Name')),
-              const SizedBox(height: 8),
+              TextField(
+                controller: nameCtrl,
+                autofocus: true,
+                decoration: InputDecoration(labelText: isRo ? 'Nume' : 'Name'),
+              ),
+              const SizedBox(height: 10),
               Row(
                 children: [
-                  Expanded(
-                    child: TextField(
-                      controller: addressCtrl,
-                      decoration: InputDecoration(labelText: isRo ? 'Caută adresă' : 'Search address'),
-                      onSubmitted: (_) => geocode(setState),
-                    ),
+                  const Icon(Icons.location_on_rounded, color: AppTheme.primary, size: 18),
+                  const SizedBox(width: 6),
+                  Text(
+                    '${picked.latitude.toStringAsFixed(5)}, ${picked.longitude.toStringAsFixed(5)}',
+                    style: const TextStyle(fontSize: 12, color: Colors.black54),
                   ),
-                  const SizedBox(width: 8),
-                  isGeocoding
-                      ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
-                      : IconButton(
-                          icon: const Icon(Icons.search_rounded),
-                          onPressed: () => geocode(setState),
-                        ),
                 ],
               ),
-              TextField(controller: latCtrl, decoration: const InputDecoration(labelText: 'Latitude'), keyboardType: TextInputType.number),
-              TextField(controller: lonCtrl, decoration: const InputDecoration(labelText: 'Longitude'), keyboardType: TextInputType.number),
-              TextField(controller: capCtrl, decoration: const InputDecoration(labelText: 'Capacity'), keyboardType: TextInputType.number),
+              const SizedBox(height: 10),
+              TextField(
+                controller: capCtrl,
+                decoration: InputDecoration(labelText: isRo ? 'Capacitate' : 'Capacity'),
+                keyboardType: TextInputType.number,
+              ),
               CheckboxListTile(
                 value: covered,
                 onChanged: (v) => setState(() => covered = v ?? false),
@@ -480,14 +447,19 @@ class _ParkingAdminTab extends ConsumerWidget {
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogCtx), child: const Text('Cancel')),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: Text(isRo ? 'Anulează' : 'Cancel'),
+            ),
             FilledButton(
               onPressed: () {
                 ref.read(parkingProvider.notifier).addParking(BikeParking(
                   id: 'p-${DateTime.now().millisecondsSinceEpoch}',
-                  name: nameCtrl.text.trim(),
-                  latitude: double.tryParse(latCtrl.text) ?? kSector2LatFallback,
-                  longitude: double.tryParse(lonCtrl.text) ?? kSector2LonFallback,
+                  name: nameCtrl.text.trim().isEmpty
+                      ? 'Parcare ${DateTime.now().millisecond}'
+                      : nameCtrl.text.trim(),
+                  latitude: picked.latitude,
+                  longitude: picked.longitude,
                   capacity: int.tryParse(capCtrl.text) ?? 10,
                   isCovered: covered,
                 ));
@@ -501,9 +473,6 @@ class _ParkingAdminTab extends ConsumerWidget {
     );
   }
 }
-
-const double kSector2LatFallback = 44.4557;
-const double kSector2LonFallback = 26.1162;
 
 // ─── Top Routes Admin Tab ────────────────────────────────────────────────────
 class _TopRoutesTab extends ConsumerStatefulWidget {
@@ -730,6 +699,123 @@ class _TopRoutesTabState extends ConsumerState<_TopRoutesTab> {
           ],
         );
       },
+    );
+  }
+}
+
+// ─── Pin Picker Screen ────────────────────────────────────────────────────────
+/// Full-screen Mapbox map where the admin taps to drop a pin and confirm.
+class _PinPickerScreen extends StatefulWidget {
+  const _PinPickerScreen();
+
+  @override
+  State<_PinPickerScreen> createState() => _PinPickerScreenState();
+}
+
+class _PinPickerScreenState extends State<_PinPickerScreen> {
+  final _ctrl = MapboxGlController();
+  LatLng? _picked;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Drop a pin'),
+        backgroundColor: AppTheme.primary,
+        foregroundColor: Colors.white,
+        actions: [
+          if (_picked != null)
+            TextButton(
+              onPressed: () => Navigator.pop(context, _picked),
+              child: const Text(
+                'Confirm',
+                style: TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w700),
+              ),
+            ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          // ── Map ──────────────────────────────────────────────────────────
+          MapboxGlWidget(
+            controller: _ctrl,
+            onTap: (lat, lng) {
+              setState(() => _picked = LatLng(lat, lng));
+              _ctrl.setDestMarker(lat, lng);
+            },
+            onRouteHit: (_) {},
+            onRentalTap: (_) {},
+          ),
+
+          // ── Hint pill ────────────────────────────────────────────────────
+          Positioned(
+            top: 16,
+            left: 16,
+            right: 16,
+            child: Center(
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: const [
+                    BoxShadow(color: Colors.black26, blurRadius: 8)
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      _picked == null
+                          ? Icons.touch_app_rounded
+                          : Icons.location_on_rounded,
+                      color: AppTheme.primary,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _picked == null
+                          ? 'Tap on the map to place a pin'
+                          : '${_picked!.latitude.toStringAsFixed(5)}, '
+                              '${_picked!.longitude.toStringAsFixed(5)}',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600, fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          // ── Confirm button ───────────────────────────────────────────────
+          if (_picked != null)
+            Positioned(
+              bottom: 24,
+              left: 24,
+              right: 24,
+              child: SafeArea(
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.primary,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
+                  ),
+                  onPressed: () => Navigator.pop(context, _picked),
+                  icon: const Icon(Icons.check_rounded),
+                  label: const Text(
+                    'Confirm location',
+                    style: TextStyle(
+                        fontWeight: FontWeight.w700, fontSize: 15),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

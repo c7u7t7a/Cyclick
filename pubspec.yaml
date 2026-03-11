@@ -44,6 +44,9 @@ dependencies:
   # Local push notifications (new routes, blocked routes)
   flutter_local_notifications: ^17.2.3
 
+  # Embedded Mapbox GL JS map for true 3D terrain + building extrusions
+  webview_flutter: ^4.10.0
+
   # Utilities
   uuid: ^4.3.3
   intl: ^0.20.2

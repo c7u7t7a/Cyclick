@@ -1,7 +1,4 @@
-import 'dart:ui' as ui;
-
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:latlong2/latlong.dart';
@@ -22,7 +19,7 @@ import '../../providers/weather_provider.dart';
 import '../../services/routing_service.dart';
 import '../../services/weather_service.dart';
 import '../../widgets/weather_banner.dart';
-import '../../core/mapbox_token.dart';
+import '../../widgets/mapbox_gl_widget.dart';
 import 'active_ride_card.dart';
 import 'report_bottom_sheet.dart';
 
@@ -57,16 +54,25 @@ class MapTab extends ConsumerStatefulWidget {
 }
 
 class _MapTabState extends ConsumerState<MapTab> {
-  final _mapController = MapController();
+  final _geoController = MapboxGlController();
   final _searchCtrl = TextEditingController();
 
   // heading smoothing — previous value used to avoid jitter on small changes
   double _smoothedHeading = -1.0;
 
+  // ── Last-synced state (avoids redundant JS calls) ─────────────────────────
+  LatLng? _lastPos;
+  String? _lastReportsHash;
+  String? _lastRentalsHash;
+  String? _lastParkingsHash;
+  String? _lastGeoHash;
+  String? _lastRouteHash;
+  LatLng? _lastOrigin;
+  LatLng? _lastDest;
+
   _MapMode? _mapMode;
   _PickStep _pickStep = _PickStep.none;
   RentalStation? _selectedStation;
-  List<LatLng> _walkingRoute = [];
   int _walkingMinutes = 0;
   CyclingRouteFeature? _selectedRoute;
 
@@ -87,7 +93,6 @@ class _MapTabState extends ConsumerState<MapTab> {
   @override
   void dispose() {
     _searchCtrl.dispose();
-    _mapController.dispose();
     super.dispose();
   }
 
@@ -109,199 +114,162 @@ class _MapTabState extends ConsumerState<MapTab> {
         ref.watch(cyclingRoutesProvider).valueOrNull ?? const [];
 
     // ── Heading-based map rotation (Waze style) ─────────────────────────────
-    // Only rotate when actively riding and heading data is valid
     final isActive = ref.watch(rideProvider).isActive;
     if (isActive && isNavigate && heading >= 0) {
-      // Smooth heading: ignore changes < 3° to avoid jitter
       if (_smoothedHeading < 0 || (heading - _smoothedHeading).abs() > 3) {
         _smoothedHeading = heading;
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _mapController.rotate(heading);
+          if (!mounted) return;
+          _geoController.setBearing(heading);
+          _geoController.setCamera(
+            lat: ref.read(currentPositionProvider)?.latitude ?? kSector2Lat,
+            lng: ref.read(currentPositionProvider)?.longitude ?? kSector2Lon,
+            zoom: kNavigationZoom,
+            bearing: heading,
+            pitch: 60,
+          );
         });
       }
     }
     final showRoutes = ref.watch(showCyclingRoutesProvider);
 
+    // ── Sync all map state to the WebView (post-frame, delta-only) ────────────
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      // User position
+      if (currentPos != null && currentPos != _lastPos) {
+        _lastPos = currentPos;
+        _geoController.setUserMarker(
+          currentPos.latitude,
+          currentPos.longitude,
+          heading,
+          isActive && isNavigate,
+        );
+      }
+
+      // Origin marker
+      if (origin != _lastOrigin) {
+        _lastOrigin = origin;
+        if (origin != null) {
+          _geoController.setOriginMarker(origin.latitude, origin.longitude);
+        } else {
+          _geoController.clearOriginMarker();
+        }
+      }
+
+      // Destination marker
+      if (destination != _lastDest) {
+        _lastDest = destination;
+        if (destination != null) {
+          _geoController.setDestMarker(destination.latitude, destination.longitude);
+        } else {
+          _geoController.clearDestMarker();
+        }
+      }
+
+      // Report markers
+      final reportsKey = reports.map((r) => r.id).join(',');
+      if (reportsKey != _lastReportsHash) {
+        _lastReportsHash = reportsKey;
+        _geoController.setReportMarkers(reports.map((r) => {
+          'lat': r.latitude,
+          'lng': r.longitude,
+          'emoji': _reportEmoji(r.type),
+          'label': r.type.label,
+        }).toList());
+      }
+
+      // Rental markers (rent mode)
+      final rentalsKey = '${isRent}_${rentals.map((s) => '${s.id}${_selectedStation?.id == s.id}').join()}';
+      if (rentalsKey != _lastRentalsHash) {
+        _lastRentalsHash = rentalsKey;
+        if (isRent) {
+          _geoController.setRentalMarkers(rentals.map((s) => {
+            'id': s.id,
+            'lat': s.latLng.latitude,
+            'lng': s.latLng.longitude,
+            'selected': _selectedStation?.id == s.id,
+          }).toList());
+        } else {
+          _geoController.setRentalMarkers(const []);
+        }
+      }
+
+      // Parking markers
+      final parkingKey = '$_showParking${parkings.length}';
+      if (parkingKey != _lastParkingsHash) {
+        _lastParkingsHash = parkingKey;
+        _geoController.setParkingMarkers(
+          parkings.map((p) => {
+            'lat': p.latLng.latitude,
+            'lng': p.latLng.longitude,
+            'name': p.name,
+          }).toList(),
+          _showParking,
+        );
+      }
+
+      // GeoJSON cycling infrastructure layer
+      final geoKey = '${routes.length}_$showRoutes';
+      if (geoKey != _lastGeoHash) {
+        _lastGeoHash = geoKey;
+        _geoController.setGeoJsonRoutes(
+          routes.map((f) => {
+            'color': _colorToHex(f.color),
+            'segs': f.segments.map((seg) =>
+              seg.map((p) => [p.latitude, p.longitude]).toList()
+            ).toList(),
+          }).toList(),
+          showRoutes,
+        );
+      }
+
+      // Route polylines
+      final routeKey = '${_routeOptions.length}_$_selectedRouteIdx';
+      if (routeKey != _lastRouteHash) {
+        _lastRouteHash = routeKey;
+        if (_routeOptions.isEmpty) {
+          _geoController.clearRoutePolylines();
+        } else {
+          _geoController.drawRoutePolylines(
+            _routeOptions.map((r) => {
+              'color': _colorToHex(r.color),
+              'coords': r.points.map((p) => [p.latitude, p.longitude]).toList(),
+            }).toList(),
+            _selectedRouteIdx,
+          );
+        }
+      }
+
+      // Camera pitch: navigate = 45°, other modes = 0°
+      if (isNavigate && !isActive) {
+        _geoController.setPitch(45);
+      } else if (!isNavigate) {
+        _geoController.setPitch(0);
+      }
+    });
+
     return Scaffold(
       extendBodyBehindAppBar: true,
       body: Stack(
         children: [
-          // ── Map ─────────────────────────────────────────────────────────────
-          Builder(builder: (context) {
-            Widget mapWidget = FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter:
-                  const LatLng(kSector2Lat, kSector2Lon),
-              initialZoom: kDefaultZoom,
-              onTap: (tapPos, latlng) => _onMapTap(latlng),
+          // ── 3D Map (Mapbox GL JS in WebView) ──────────────────────────────
+          Positioned.fill(
+            child: MapboxGlWidget(
+              controller: _geoController,
+              onTap: (lat, lng) => _onMapTap(LatLng(lat, lng)),
+              onRouteHit: (segIdx) {
+                final r = ref.read(cyclingRoutesProvider).valueOrNull ?? const [];
+                if (segIdx < r.length) setState(() => _selectedRoute = r[segIdx]);
+              },
+              onRentalTap: (id) {
+                final r = ref.read(rentalProvider).valueOrNull ?? const <RentalStation>[];
+                final station = r.where((s) => s.id == id).firstOrNull;
+                if (station != null) _selectStation(station);
+              },
             ),
-            children: [
-              TileLayer(
-                urlTemplate:
-                    '$kMapboxStyleUrl?access_token=$kMapboxPublicToken',
-                userAgentPackageName: 'com.cyclick.app',
-                tileProvider: NetworkTileProvider(),
-              ),
-              // ── Cycling infrastructure risk layer (always under markers) ────
-              if (showRoutes && routes.isNotEmpty)
-                PolylineLayer(
-                  polylines: [
-                    for (final f in routes)
-                      for (final seg in f.segments)
-                        if (seg.length >= 2)
-                          Polyline(
-                            points: seg,
-                            color: f.color.withAlpha(204),
-                            strokeWidth: 4,
-                            strokeCap: StrokeCap.round,
-                            strokeJoin: StrokeJoin.round,
-                          ),
-                  ],
-                ),
-              if (isNavigate) ...[
-                // ── 3 route alternatives polylines ─────────────────────────
-                if (_routeOptions.isNotEmpty)
-                  PolylineLayer(
-                    polylines: [
-                      for (int i = 0; i < _routeOptions.length; i++)
-                        if (_routeOptions[i].points.length >= 2)
-                          Polyline(
-                            points: _routeOptions[i].points,
-                            color: i == _selectedRouteIdx
-                                ? _routeOptions[i].color
-                                : _routeOptions[i].color.withAlpha(80),
-                            strokeWidth: i == _selectedRouteIdx ? 5 : 3,
-                            isDotted: i != _selectedRouteIdx,
-                            strokeCap: StrokeCap.round,
-                            strokeJoin: StrokeJoin.round,
-                          ),
-                    ],
-                  ),
-                MarkerLayer(markers: _buildReportMarkers(reports)),
-                if (_showParking)
-                MarkerLayer(
-                  markers: parkings
-                      .map((p) => Marker(
-                            point: p.latLng,
-                            width: 48,
-                            height: 48,
-                            child: Tooltip(
-                              message:
-                                  '${p.name}\n${p.capacity} ${isRo ? 'locuri' : 'spots'}${p.isCovered ? (isRo ? ' · acoperit' : ' · covered') : ''}',
-                              preferBelow: false,
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF6A1B9A),
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                      color: Colors.white, width: 2.5),
-                                  boxShadow: const [
-                                    BoxShadow(
-                                        color: Colors.black38,
-                                        blurRadius: 8,
-                                        offset: Offset(0, 3)),
-                                  ],
-                                ),
-                                child: const Icon(
-                                    Icons.local_parking_rounded,
-                                    color: Colors.white,
-                                    size: 24),
-                              ),
-                            ),
-                          ))
-                      .toList(),
-                ),
-                if (origin != null)
-                  MarkerLayer(markers: [_buildOriginMarker(origin)]),
-                if (destination != null)
-                  MarkerLayer(
-                      markers: [_buildDestinationMarker(destination)]),
-              ],
-              if (isRent) ...[
-                if (_walkingRoute.length >= 2)
-                  PolylineLayer(polylines: [
-                    Polyline(
-                      points: _walkingRoute,
-                      color: AppTheme.primary,
-                      strokeWidth: 4,
-                      isDotted: true,
-                    ),
-                  ]),
-                MarkerLayer(
-                  markers: rentals.map((s) {
-                    final isSel = _selectedStation?.id == s.id;
-                    return Marker(
-                      point: s.latLng,
-                      width: 44,
-                      height: 44,
-                      child: GestureDetector(
-                        onTap: () => _selectStation(s),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: isSel
-                                ? AppTheme.primary
-                                : const Color(0xFF1565C0),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                                color: Colors.white,
-                                width: isSel ? 3 : 2),
-                            boxShadow: const [
-                              BoxShadow(
-                                  color: Colors.black26, blurRadius: 6)
-                            ],
-                          ),
-                          child: const Icon(Icons.pedal_bike_rounded,
-                              color: Colors.white, size: 22),
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-                MarkerLayer(
-                  markers: parkings
-                      .map((p) => Marker(
-                            point: p.latLng,
-                            width: 36,
-                            height: 36,
-                            child: Tooltip(
-                              message:
-                                  '${p.name} (${p.capacity} spots${p.isCovered ? ', covered' : ''})',
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF6A1B9A),
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                      color: Colors.white, width: 1.5),
-                                ),
-                                child: const Icon(
-                                    Icons.local_parking_rounded,
-                                    color: Colors.white,
-                                    size: 18),
-                              ),
-                            ),
-                          ))
-                      .toList(),
-                ),
-              ],
-              if (currentPos != null)
-                MarkerLayer(markers: [_buildUserMarker(currentPos, isActive && isNavigate)]),
-            ],
-          );
-            // Apply 3D perspective tilt in navigation mode (Waze-style)
-            if (isNavigate) {
-              mapWidget = ClipRect(
-                child: Transform(
-                  transform: Matrix4.identity()
-                    ..setEntry(3, 2, 0.0008)
-                    ..rotateX(isActive ? 0.5 : 0.28),
-                  alignment: Alignment.bottomCenter,
-                  child: mapWidget,
-                ),
-              );
-            }
-            return mapWidget;
-          }),
+          ),
 
           // ── Search / Navigation Panel + Mode/Music controls ─────────────────
           Positioned(
@@ -504,10 +472,7 @@ class _MapTabState extends ConsumerState<MapTab> {
                 station: _selectedStation!,
                 walkingMinutes: _walkingMinutes,
                 isRo: isRo,
-                onClose: () => setState(() {
-                  _selectedStation = null;
-                  _walkingRoute = [];
-                }),
+                onClose: _closeStation,
               ),
             ),
 
@@ -564,7 +529,6 @@ class _MapTabState extends ConsumerState<MapTab> {
   Future<void> _onStartRide() async {
     final weather = ref.read(weatherProvider).valueOrNull;
     final isRo = ref.read(isRomanianProvider);
-    // Proactively send weather push notification if conditions are bad
     if (weather != null && weather.isAlert) {
       NotificationService().showWeatherAlert(weather, isRo: isRo);
     }
@@ -575,10 +539,14 @@ class _MapTabState extends ConsumerState<MapTab> {
     );
     if (confirmed == true && mounted) {
       await ref.read(rideProvider.notifier).startRide();
-      // Zoom into user and tilt to 3D
       final pos = ref.read(currentPositionProvider);
       if (pos != null) {
-        _mapController.move(pos, 17);
+        _geoController.setCamera(
+          lat: pos.latitude,
+          lng: pos.longitude,
+          zoom: kNavigationZoom,
+          pitch: 60,
+        );
       }
     }
   }
@@ -588,10 +556,14 @@ class _MapTabState extends ConsumerState<MapTab> {
     setState(() {
       _loadingRoutes = true;
       _routeOptions = [];
+      _lastRouteHash = null; // force redraw
     });
     try {
+      final geoJsonRoutes =
+          ref.read(cyclingRoutesProvider).valueOrNull ?? const [];
       final svc = RoutingService();
-      final opts = await svc.getCyclingRouteOptions(from, to);
+      final opts = await svc.getCyclingRouteOptions(from, to,
+          geoJsonRoutes: geoJsonRoutes);
       if (mounted) {
         setState(() {
           _routeOptions = opts
@@ -603,18 +575,14 @@ class _MapTabState extends ConsumerState<MapTab> {
                     icon: o.icon,
                   ))
               .toList();
-          _selectedRouteIdx = 1; // balanced by default
+          _selectedRouteIdx = 0; // slot 0 = GeoJSON "Rute Aprobate" or safest
           _loadingRoutes = false;
         });
         if (_routeOptions.isNotEmpty) {
           final pts = _routeOptions[_selectedRouteIdx].points;
           if (pts.length >= 2) {
-            final bounds = LatLngBounds.fromPoints(pts);
-            _mapController.fitCamera(
-              CameraFit.bounds(
-                bounds: bounds,
-                padding: const EdgeInsets.fromLTRB(40, 200, 40, 260),
-              ),
+            _geoController.fitBounds(
+              pts.map((p) => [p.latitude, p.longitude]).toList(),
             );
           }
         }
@@ -633,16 +601,8 @@ class _MapTabState extends ConsumerState<MapTab> {
   }
 
   void _onMapTap(LatLng latlng) {
-    // Prioritise route info tap over navigation destination
-    if (ref.read(showCyclingRoutesProvider)) {
-      final routes =
-          ref.read(cyclingRoutesProvider).valueOrNull ?? const [];
-      final hit = nearestRoute(routes, latlng);
-      if (hit != null) {
-        setState(() => _selectedRoute = hit);
-        return;
-      }
-    }
+    // Route-hit events come through the dedicated onRouteHit callback.
+    // Plain map taps either set navigation origin/destination or close the route card.
     setState(() => _selectedRoute = null);
     if (_mapMode == _MapMode.navigate && !ref.read(rideProvider).isActive) {
       if (_pickStep == _PickStep.pickingOrigin) {
@@ -680,21 +640,23 @@ class _MapTabState extends ConsumerState<MapTab> {
     final pos = ref.read(currentPositionProvider);
     setState(() {
       _selectedStation = station;
-      _walkingRoute = [];
       _walkingMinutes = 0;
+      _lastRentalsHash = null; // force rental marker redraw with new selection
     });
     if (pos != null) {
       final svc = RoutingService();
       final route = await svc.getWalkingPolyline(pos, station.latLng);
       final mins = await svc.getWalkingMinutes(pos, station.latLng);
       if (mounted) {
-        setState(() {
-          _walkingRoute = route;
-          _walkingMinutes = mins;
-        });
+        setState(() => _walkingMinutes = mins);
+        if (route.length >= 2) {
+          _geoController.drawWalkingRoute(
+            route.map((p) => [p.latitude, p.longitude]).toList(),
+          );
+        }
       }
     }
-    _mapController.move(station.latLng, 15.5);
+    _geoController.jumpTo(station.latLng.latitude, station.latLng.longitude, 15.5);
   }
 
   Future<void> _locateMe() async {
@@ -703,7 +665,7 @@ class _MapTabState extends ConsumerState<MapTab> {
     if (pos != null && mounted) {
       final latlng = LatLng(pos.latitude, pos.longitude);
       ref.read(currentPositionProvider.notifier).state = latlng;
-      _mapController.move(latlng, kNavigationZoom);
+      _geoController.jumpTo(latlng.latitude, latlng.longitude, kNavigationZoom);
     }
   }
 
@@ -751,109 +713,28 @@ class _MapTabState extends ConsumerState<MapTab> {
     );
   }
 
-  List<Marker> _buildReportMarkers(List<ReportModel> reports) {
-    return reports
-        .map(
-          (r) => Marker(
-            point: LatLng(r.latitude, r.longitude),
-            width: 40,
-            height: 40,
-            child: Tooltip(
-              message: r.type.label.replaceAll('\n', ' '),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: r.type.color,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: r.type.color.withAlpha(120),
-                      blurRadius: 8,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Icon(r.type.icon, color: Colors.white, size: 20),
-              ),
-            ),
-          ),
-        )
-        .toList();
+  // ── WebView map helper utilities ───────────────────────────────────────────
+
+  String _colorToHex(Color c) =>
+      '#${c.value.toRadixString(16).padLeft(8, '0').substring(2)}';
+
+  String _reportEmoji(ReportType type) {
+    return switch (type) {
+      ReportType.blockedLane          => '🚧',
+      ReportType.dangerousIntersection => '⚠️',
+      ReportType.pothole              => '🕳️',
+      ReportType.safeZone             => '🛡️',
+      ReportType.uncleanedPath        => '🧹',
+    };
   }
 
-  Marker _buildUserMarker(LatLng pos, bool showArrow) {
-    return Marker(
-      point: pos,
-      width: 60,
-      height: showArrow ? 78 : 56,
-      // rotate:true keeps the puck screen-upright while the map rotates
-      rotate: true,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (showArrow) ...[  
-            CustomPaint(
-              size: const Size(22, 14),
-              painter: _ArrowTipPainter(),
-            ),
-            const SizedBox(height: 2),
-          ],
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: AppTheme.primary,
-              shape: BoxShape.circle,
-              border: Border.all(color: Colors.white, width: 3.5),
-              boxShadow: [
-                BoxShadow(
-                  color: AppTheme.primary.withAlpha(130),
-                  blurRadius: 14,
-                  spreadRadius: 2,
-                ),
-                const BoxShadow(
-                  color: Colors.black26,
-                  blurRadius: 8,
-                  offset: Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Icon(
-              showArrow
-                  ? Icons.navigation_rounded
-                  : Icons.directions_bike_rounded,
-              color: Colors.white,
-              size: 24,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Marker _buildOriginMarker(LatLng pos) {
-    return Marker(
-      point: pos,
-      width: 44,
-      height: 44,
-      child: const Icon(
-        Icons.trip_origin_rounded,
-        color: Colors.green,
-        size: 40,
-      ),
-    );
-  }
-
-  Marker _buildDestinationMarker(LatLng pos) {
-    return Marker(
-      point: pos,
-      width: 44,
-      height: 44,
-      child: const Icon(
-        Icons.location_pin,
-        color: Colors.red,
-        size: 44,
-      ),
-    );
+  // ── Station close (clear walking route) ───────────────────────────────────
+  void _closeStation() {
+    setState(() {
+      _selectedStation = null;
+      _lastRentalsHash = null;
+    });
+    _geoController.clearWalkingRoute();
   }
 }
 
@@ -2254,32 +2135,4 @@ class _RouteInfoCard extends StatelessWidget {
       ),
     );
   }
-}
-
-// ─── Waze-style arrow tip above the user puck ─────────────────────────────────
-class _ArrowTipPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final path = ui.Path()
-      ..moveTo(size.width / 2, 0)
-      ..lineTo(0, size.height)
-      ..lineTo(size.width, size.height)
-      ..close();
-    // shadow
-    canvas.drawPath(path, Paint()
-      ..color = Colors.black.withAlpha(55)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4));
-    // fill
-    canvas.drawPath(path, Paint()
-      ..color = const Color(0xFF01796F)
-      ..style = PaintingStyle.fill);
-    // white edge
-    canvas.drawPath(path, Paint()
-      ..color = Colors.white.withAlpha(190)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

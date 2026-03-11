@@ -311,18 +311,26 @@ class _RentalAdminTab extends ConsumerWidget {
             child: Text(isRo ? 'Anulează' : 'Cancel'),
           ),
           FilledButton(
-            onPressed: () {
-              ref.read(rentalProvider.notifier).addStation(RentalStation(
-                id: 'rs-${DateTime.now().millisecondsSinceEpoch}',
-                name: nameCtrl.text.trim().isEmpty
-                    ? 'Stație ${DateTime.now().millisecond}'
-                    : nameCtrl.text.trim(),
-                latitude: picked.latitude,
-                longitude: picked.longitude,
-                availableBikes: 0,
-                totalDocks: int.tryParse(docksCtrl.text) ?? 10,
-              ));
-              Navigator.pop(dialogCtx);
+            onPressed: () async {
+              try {
+                await ref.read(rentalProvider.notifier).addStation(RentalStation(
+                  id: 'rs-${DateTime.now().millisecondsSinceEpoch}',
+                  name: nameCtrl.text.trim().isEmpty
+                      ? 'Stație ${DateTime.now().millisecond}'
+                      : nameCtrl.text.trim(),
+                  latitude: picked.latitude,
+                  longitude: picked.longitude,
+                  availableBikes: 0,
+                  totalDocks: int.tryParse(docksCtrl.text) ?? 10,
+                ));
+                if (dialogCtx.mounted) Navigator.pop(dialogCtx);
+              } catch (e) {
+                if (dialogCtx.mounted) {
+                  ScaffoldMessenger.of(dialogCtx).showSnackBar(
+                    SnackBar(content: Text('Error saving station: $e')),
+                  );
+                }
+              }
             },
             child: Text(isRo ? 'Salvează' : 'Save'),
           ),
@@ -452,18 +460,26 @@ class _ParkingAdminTab extends ConsumerWidget {
               child: Text(isRo ? 'Anulează' : 'Cancel'),
             ),
             FilledButton(
-              onPressed: () {
-                ref.read(parkingProvider.notifier).addParking(BikeParking(
-                  id: 'p-${DateTime.now().millisecondsSinceEpoch}',
-                  name: nameCtrl.text.trim().isEmpty
-                      ? 'Parcare ${DateTime.now().millisecond}'
-                      : nameCtrl.text.trim(),
-                  latitude: picked.latitude,
-                  longitude: picked.longitude,
-                  capacity: int.tryParse(capCtrl.text) ?? 10,
-                  isCovered: covered,
-                ));
-                Navigator.pop(dialogCtx);
+              onPressed: () async {
+                try {
+                  await ref.read(parkingProvider.notifier).addParking(BikeParking(
+                    id: 'p-${DateTime.now().millisecondsSinceEpoch}',
+                    name: nameCtrl.text.trim().isEmpty
+                        ? 'Parcare ${DateTime.now().millisecond}'
+                        : nameCtrl.text.trim(),
+                    latitude: picked.latitude,
+                    longitude: picked.longitude,
+                    capacity: int.tryParse(capCtrl.text) ?? 10,
+                    isCovered: covered,
+                  ));
+                  if (dialogCtx.mounted) Navigator.pop(dialogCtx);
+                } catch (e) {
+                  if (dialogCtx.mounted) {
+                    ScaffoldMessenger.of(dialogCtx).showSnackBar(
+                      SnackBar(content: Text('Error saving parking: $e')),
+                    );
+                  }
+                }
               },
               child: Text(isRo ? 'Salvează' : 'Save'),
             ),

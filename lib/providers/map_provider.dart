@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -92,11 +94,24 @@ class RideNotifier extends StateNotifier<RideState> {
     _location.startTracking(
       onPosition: (Position pos) {
         _ride.addPosition(pos);
+
+        // Compute heading from position delta when GPS compass returns -1
+        // (common on iOS when speed is low or compass is uncalibrated).
+        double heading = pos.heading;
+        if (heading < 0) {
+          final prev = _ref.read(currentPositionProvider);
+          if (prev != null) {
+            heading = _bearingBetween(
+              prev.latitude, prev.longitude,
+              pos.latitude, pos.longitude,
+            );
+          }
+        }
+
         _ref.read(currentPositionProvider.notifier).state =
             LatLng(pos.latitude, pos.longitude);
-        // Track GPS heading for Waze-like map rotation
-        if (pos.heading >= 0) {
-          _ref.read(currentHeadingProvider.notifier).state = pos.heading;
+        if (heading >= 0) {
+          _ref.read(currentHeadingProvider.notifier).state = heading;
         }
         state = state.copyWith(
           isActive: true,
@@ -105,6 +120,18 @@ class RideNotifier extends StateNotifier<RideState> {
         );
       },
     );
+  }
+
+  /// Returns the compass bearing (0–360°) from point A to point B.
+  static double _bearingBetween(
+      double lat1, double lon1, double lat2, double lon2) {
+    final dLon = (lon2 - lon1) * math.pi / 180;
+    final lat1R = lat1 * math.pi / 180;
+    final lat2R = lat2 * math.pi / 180;
+    final y = math.sin(dLon) * math.cos(lat2R);
+    final x = math.cos(lat1R) * math.sin(lat2R) -
+        math.sin(lat1R) * math.cos(lat2R) * math.cos(dLon);
+    return (math.atan2(y, x) * 180 / math.pi + 360) % 360;
   }
 
   /// Finish the ride and return the completed [RideHistoryModel].

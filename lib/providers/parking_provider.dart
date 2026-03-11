@@ -67,8 +67,21 @@ class ParkingNotifier extends StateNotifier<AsyncValue<List<BikeParking>>> {
   Future<void> addParking(BikeParking p) async {
     // Omit id — let Supabase generate a UUID via default uuid_generate_v4()
     final data = p.toJson()..remove('id');
+    // Let any insert error propagate — the UI's try/catch will surface it.
     await Supabase.instance.client.from('bike_parkings').insert(data);
-    await load();
+    await _loadFresh();
+  }
+
+  /// Like [load] but never falls back to seed data — used after insert/update
+  /// so a successful write is always reflected in state.
+  Future<void> _loadFresh() async {
+    final rows = await Supabase.instance.client
+        .from('bike_parkings')
+        .select()
+        .eq('is_active', true)
+        .order('name');
+    state = AsyncValue.data(
+        (rows as List).map((r) => BikeParking.fromJson(r)).toList());
   }
 }
 

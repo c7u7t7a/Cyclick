@@ -404,7 +404,8 @@ class _MapboxGlWidgetState extends State<MapboxGlWidget> {
 
       setCamera(lat, lng, bearing, pitch, zoom, animate) {
         const opts = { center: [lng, lat], bearing, pitch, zoom };
-        animate ? map.easeTo({ ...opts, duration: 350 }) : map.jumpTo(opts);
+        // 200 ms for GPS-follow ticks (Waze-feel); longer for manual jumps
+        animate ? map.easeTo({ ...opts, duration: 200 }) : map.jumpTo(opts);
       },
 
       jumpTo(lat, lng, zoom) {

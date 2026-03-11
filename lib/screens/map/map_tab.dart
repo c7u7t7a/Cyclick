@@ -63,6 +63,7 @@ class _MapTabState extends ConsumerState<MapTab> {
   // ── Last-synced state (avoids redundant JS calls) ─────────────────────────
   LatLng? _lastPos;
   String? _lastActiveCamKey; // gate for 3rd-person camera during active ride
+  double _lastPitch = -1.0;  // gate: only call setPitch when value changes
   String? _lastReportsHash;
   String? _lastRentalsHash;
   String? _lastParkingsHash;
@@ -115,9 +116,12 @@ class _MapTabState extends ConsumerState<MapTab> {
         ref.watch(cyclingRoutesProvider).valueOrNull ?? const [];
 
     // ── Heading smoothing — invalidates camera key so post-frame re-fires ────
+    // Uses shortest angular distance to handle the 0°/360° wrap-around.
     final isActive = ref.watch(rideProvider).isActive;
     if (isActive && isNavigate && heading >= 0) {
-      if (_smoothedHeading < 0 || (heading - _smoothedHeading).abs() > 3) {
+      double diff = (heading - _smoothedHeading).abs();
+      if (diff > 180) diff = 360 - diff; // shortest arc
+      if (_smoothedHeading < 0 || diff > 3) {
         _smoothedHeading = heading;
         _lastActiveCamKey = null; // post-frame will update camera + bearing
       }
@@ -253,11 +257,12 @@ class _MapTabState extends ConsumerState<MapTab> {
         }
       }
 
-      // Camera pitch: navigate = 45°, other modes = 0°
-      if (isNavigate && !isActive) {
-        _geoController.setPitch(45);
-      } else if (!isNavigate) {
-        _geoController.setPitch(0);
+      // Camera pitch: navigate-idle = 45°, other modes = 0°.
+      // Active-ride pitch (60°) is handled by setCamera above.
+      final targetPitch = (isNavigate && !isActive) ? 45.0 : (!isNavigate ? 0.0 : 60.0);
+      if (targetPitch != _lastPitch) {
+        _lastPitch = targetPitch;
+        if (!isActive) _geoController.setPitch(targetPitch);
       }
     });
 

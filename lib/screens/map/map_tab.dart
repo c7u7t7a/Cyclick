@@ -90,22 +90,29 @@ class _MapTabState extends ConsumerState<MapTab> {
                   markers: parkings
                       .map((p) => Marker(
                             point: p.latLng,
-                            width: 36,
-                            height: 36,
+                            width: 48,
+                            height: 48,
                             child: Tooltip(
                               message:
-                                  '${p.name} (${p.capacity} ${isRo ? 'locuri' : 'spots'}${p.isCovered ? (isRo ? ', acoperit' : ', covered') : ''})',
+                                  '${p.name}\n${p.capacity} ${isRo ? 'locuri' : 'spots'}${p.isCovered ? (isRo ? ' · acoperit' : ' · covered') : ''}',
+                              preferBelow: false,
                               child: Container(
                                 decoration: BoxDecoration(
                                   color: const Color(0xFF6A1B9A),
                                   shape: BoxShape.circle,
                                   border: Border.all(
-                                      color: Colors.white, width: 1.5),
+                                      color: Colors.white, width: 2.5),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                        color: Colors.black38,
+                                        blurRadius: 8,
+                                        offset: Offset(0, 3)),
+                                  ],
                                 ),
                                 child: const Icon(
                                     Icons.local_parking_rounded,
                                     color: Colors.white,
-                                    size: 18),
+                                    size: 24),
                               ),
                             ),
                           ))

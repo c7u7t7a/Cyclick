@@ -6,15 +6,20 @@ import '../../providers/rental_provider.dart';
 import '../../providers/parking_provider.dart';
 import '../../providers/locale_provider.dart';
 
-/// Role check — admin flag stored in profiles table.
+/// Emails that always have admin access (hackathon bypass).
+const _hardcodedAdmins = {'lazarcristi720@gmail.com'};
+
+/// Role check — first checks hardcoded list, then DB flag.
 final isAdminProvider = FutureProvider<bool>((ref) async {
-  final uid = Supabase.instance.client.auth.currentUser?.id;
-  if (uid == null) return false;
+  final user = Supabase.instance.client.auth.currentUser;
+  if (user == null) return false;
+  // Hardcoded bypass — works even if migrations haven't been run yet
+  if (_hardcodedAdmins.contains(user.email?.toLowerCase())) return true;
   try {
     final row = await Supabase.instance.client
         .from('profiles')
         .select('is_admin')
-        .eq('id', uid)
+        .eq('id', user.id)
         .maybeSingle();
     return row?['is_admin'] as bool? ?? false;
   } catch (_) {

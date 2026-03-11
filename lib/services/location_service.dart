@@ -28,16 +28,25 @@ class LocationService {
         permission == LocationPermission.whileInUse;
   }
 
-  /// One-shot current position. Returns null if unavailable.
+  /// One-shot current position. Returns null if unavailable or outside Romania.
   Future<Position?> getCurrentPosition() async {
     if (!await requestPermission()) return null;
     try {
-      return await Geolocator.getCurrentPosition(
+      final pos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
+      return _isInRomania(pos) ? pos : null;
     } catch (_) {
       return null;
     }
+  }
+
+  /// Returns false for obviously wrong simulator/mock positions outside Romania.
+  static bool _isInRomania(Position pos) {
+    return pos.latitude >= 43.5 &&
+        pos.latitude <= 48.5 &&
+        pos.longitude >= 20.0 &&
+        pos.longitude <= 30.0;
   }
 
   /// Start continuous GPS stream for active ride tracking.
@@ -54,6 +63,7 @@ class LocationService {
     _subscription =
         Geolocator.getPositionStream(locationSettings: settings).listen(
       (pos) {
+        if (!_isInRomania(pos)) return;
         _lastKnownPosition = pos;
         onPosition(pos);
       },

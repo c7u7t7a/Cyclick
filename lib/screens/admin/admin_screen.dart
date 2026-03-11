@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme.dart';
 import '../../providers/rental_provider.dart';
@@ -264,19 +266,60 @@ class _RentalAdminTab extends ConsumerWidget {
   void _showAddStation(
       BuildContext ctx, WidgetRef ref, bool isRo) {
     final nameCtrl = TextEditingController();
+    final addressCtrl = TextEditingController();
     final latCtrl = TextEditingController(text: '44.45');
     final lonCtrl = TextEditingController(text: '26.11');
     final docksCtrl = TextEditingController(text: '10');
+    bool isGeocoding = false;
+
+    Future<void> geocode(StateSetter setState) async {
+      final q = addressCtrl.text.trim();
+      if (q.isEmpty) return;
+      setState(() => isGeocoding = true);
+      try {
+        final uri = Uri.parse(
+            'https://nominatim.openstreetmap.org/search?q=${Uri.encodeComponent(q)}&format=json&limit=1&viewbox=26.0,44.5,26.2,44.4&bounded=0');
+        final resp = await http.get(uri, headers: {'User-Agent': 'Cyclick/1.0'});
+        if (resp.statusCode == 200) {
+          final data = jsonDecode(resp.body) as List<dynamic>;
+          if (data.isNotEmpty) {
+            latCtrl.text = (data[0]['lat'] as String);
+            lonCtrl.text = (data[0]['lon'] as String);
+          }
+        }
+      } catch (_) {}
+      setState(() => isGeocoding = false);
+    }
 
     showDialog(
       context: ctx,
-      builder: (dialogCtx) => AlertDialog(
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (dialogCtx, setState) => AlertDialog(
         title:
             Text(isRo ? 'Stație nouă' : 'New Station'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Name')),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: addressCtrl,
+                    decoration: InputDecoration(labelText: isRo ? 'Caută adresă' : 'Search address'),
+                    onSubmitted: (_) => geocode(setState),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                isGeocoding
+                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                    : IconButton(
+                        icon: const Icon(Icons.search_rounded),
+                        onPressed: () => geocode(setState),
+                      ),
+              ],
+            ),
             TextField(controller: latCtrl, decoration: const InputDecoration(labelText: 'Latitude'), keyboardType: TextInputType.number),
             TextField(controller: lonCtrl, decoration: const InputDecoration(labelText: 'Longitude'), keyboardType: TextInputType.number),
             TextField(controller: docksCtrl, decoration: const InputDecoration(labelText: 'Total docks'), keyboardType: TextInputType.number),
@@ -299,6 +342,7 @@ class _RentalAdminTab extends ConsumerWidget {
             child: Text(isRo ? 'Salvează' : 'Save'),
           ),
         ],
+      ),
       ),
     );
   }
@@ -370,10 +414,31 @@ class _ParkingAdminTab extends ConsumerWidget {
 
   void _showAddParking(BuildContext ctx, WidgetRef ref, bool isRo) {
     final nameCtrl = TextEditingController();
+    final addressCtrl = TextEditingController();
     final latCtrl = TextEditingController(text: '44.45');
     final lonCtrl = TextEditingController(text: '26.11');
     final capCtrl = TextEditingController(text: '10');
     bool covered = false;
+    bool isGeocoding = false;
+
+    Future<void> geocode(StateSetter setState) async {
+      final q = addressCtrl.text.trim();
+      if (q.isEmpty) return;
+      setState(() => isGeocoding = true);
+      try {
+        final uri = Uri.parse(
+            'https://nominatim.openstreetmap.org/search?q=${Uri.encodeComponent(q)}&format=json&limit=1&viewbox=26.0,44.5,26.2,44.4&bounded=0');
+        final resp = await http.get(uri, headers: {'User-Agent': 'Cyclick/1.0'});
+        if (resp.statusCode == 200) {
+          final data = jsonDecode(resp.body) as List<dynamic>;
+          if (data.isNotEmpty) {
+            latCtrl.text = (data[0]['lat'] as String);
+            lonCtrl.text = (data[0]['lon'] as String);
+          }
+        }
+      } catch (_) {}
+      setState(() => isGeocoding = false);
+    }
 
     showDialog(
       context: ctx,
@@ -384,6 +449,25 @@ class _ParkingAdminTab extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Name')),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: addressCtrl,
+                      decoration: InputDecoration(labelText: isRo ? 'Caută adresă' : 'Search address'),
+                      onSubmitted: (_) => geocode(setState),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  isGeocoding
+                      ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
+                      : IconButton(
+                          icon: const Icon(Icons.search_rounded),
+                          onPressed: () => geocode(setState),
+                        ),
+                ],
+              ),
               TextField(controller: latCtrl, decoration: const InputDecoration(labelText: 'Latitude'), keyboardType: TextInputType.number),
               TextField(controller: lonCtrl, decoration: const InputDecoration(labelText: 'Longitude'), keyboardType: TextInputType.number),
               TextField(controller: capCtrl, decoration: const InputDecoration(labelText: 'Capacity'), keyboardType: TextInputType.number),

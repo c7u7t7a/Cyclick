@@ -27,6 +27,9 @@ final currentPositionProvider = StateProvider<LatLng?>((ref) => null);
 // ─── Navigation destination ───────────────────────────────────────────────────
 final navigationDestinationProvider = StateProvider<LatLng?>((ref) => null);
 
+// ─── Ride origin (start point) ────────────────────────────────────────────────
+final rideOriginProvider = StateProvider<LatLng?>((ref) => null);
+
 // ─── Map reports (Living Map) — Supabase Realtime stream ─────────────────────
 // Streams all active reports in real time; reconnects automatically on resume.
 final reportsProvider = StreamProvider<List<ReportModel>>((ref) {
@@ -99,6 +102,7 @@ class RideNotifier extends StateNotifier<RideState> {
   RideHistoryModel finishRide(String userId) {
     _location.stopTracking();
     final completed = _ride.finish(userId);
+    _ref.read(rideOriginProvider.notifier).state = null;
     state = RideState(completedRide: completed);
     return completed;
   }

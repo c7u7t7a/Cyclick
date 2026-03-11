@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:latlong2/latlong.dart';
 
 import '../../core/theme.dart';
 import '../../providers/map_provider.dart';
@@ -9,15 +8,13 @@ import '../../widgets/app_button.dart';
 /// Persistent bottom card shown when a navigation destination is set.
 /// Displays live distance & elapsed time, plus Start / Finish controls.
 class ActiveRideCard extends ConsumerWidget {
-  final LatLng origin;
-  final LatLng destination;
   final VoidCallback onFinish;
+  final VoidCallback onStart;
 
   const ActiveRideCard({
     super.key,
-    required this.origin,
-    required this.destination,
     required this.onFinish,
+    required this.onStart,
   });
 
   @override
@@ -77,49 +74,6 @@ class ActiveRideCard extends ConsumerWidget {
                   ),
                 ),
               ],
-            )
-          else
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.trip_origin_rounded, color: Colors.green, size: 18),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '${origin.latitude.toStringAsFixed(5)}, ${origin.longitude.toStringAsFixed(5)}',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.subtleText),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close_rounded, size: 18),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onPressed: () => ref.read(rideOriginProvider.notifier).state = null,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    const Icon(Icons.location_pin, color: Colors.red, size: 18),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '${destination.latitude.toStringAsFixed(5)}, ${destination.longitude.toStringAsFixed(5)}',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppTheme.subtleText),
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close_rounded, size: 18),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onPressed: () => ref.read(navigationDestinationProvider.notifier).state = null,
-                    ),
-                  ],
-                ),
-              ],
             ),
 
           const SizedBox(height: 16),
@@ -135,8 +89,7 @@ class ActiveRideCard extends ConsumerWidget {
           else
             AppButton(
               label: 'Start Ride',
-              onPressed: () =>
-                  ref.read(rideProvider.notifier).startRide(),
+              onPressed: onStart,
               icon: Icons.play_arrow_rounded,
             ),
         ],

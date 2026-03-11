@@ -16,7 +16,9 @@ import '../../providers/locale_provider.dart';
 import '../../providers/cycling_routes_layer_provider.dart';
 import '../../providers/music_provider.dart';
 import '../../services/notification_service.dart';
+import '../../providers/weather_provider.dart';
 import '../../services/routing_service.dart';
+import '../../services/weather_service.dart';
 import '../../widgets/weather_banner.dart';
 import '../../core/mapbox_token.dart';
 import 'active_ride_card.dart';
@@ -67,6 +69,7 @@ class _MapTabState extends ConsumerState<MapTab> {
   List<_CyclingRoute> _routeOptions = [];
   int _selectedRouteIdx = 1; // default: balanced
   bool _loadingRoutes = false;
+  bool _showParking = true;
 
   @override
   void initState() {
@@ -158,6 +161,7 @@ class _MapTabState extends ConsumerState<MapTab> {
                     ],
                   ),
                 MarkerLayer(markers: _buildReportMarkers(reports)),
+                if (_showParking)
                 MarkerLayer(
                   markers: parkings
                       .map((p) => Marker(
@@ -380,6 +384,25 @@ class _MapTabState extends ConsumerState<MapTab> {
                               _MusicToggleButton(
                                 onTap: () => _showMusicSheet(context),
                               ),
+                              const SizedBox(height: 6),
+                              _MapToggleIconButton(
+                                icon: Icons.route_rounded,
+                                active: showRoutes,
+                                activeColor: const Color(0xFFF44336),
+                                tooltip: isRo ? 'Hartă risc' : 'Risk Map',
+                                onTap: () => ref
+                                    .read(showCyclingRoutesProvider.notifier)
+                                    .state = !showRoutes,
+                              ),
+                              const SizedBox(height: 4),
+                              _MapToggleIconButton(
+                                icon: Icons.local_parking_rounded,
+                                active: _showParking,
+                                activeColor: const Color(0xFF6A1B9A),
+                                tooltip: isRo ? 'Parcare' : 'Parking',
+                                onTap: () =>
+                                    setState(() => _showParking = !_showParking),
+                              ),
                             ],
                           ),
                         ],
@@ -397,7 +420,7 @@ class _MapTabState extends ConsumerState<MapTab> {
           if (isNavigate && origin != null && destination != null &&
               !ref.watch(rideProvider).isActive)
             Positioned(
-              bottom: 180,
+              bottom: 140,
               left: 12,
               right: 12,
               child: _RouteOptionsPanel(
@@ -416,8 +439,7 @@ class _MapTabState extends ConsumerState<MapTab> {
               left: 0,
               right: 0,
               child: ActiveRideCard(
-                  origin: origin,
-                  destination: destination,
+                  onStart: _onStartRide,
                   onFinish: _finishRide),
             ),
 
@@ -438,84 +460,7 @@ class _MapTabState extends ConsumerState<MapTab> {
               ),
             ),
 
-          // ── Legend (+ risk layer toggle) ────────────────────────────────────
-          if (isNavigate || isRent)
-            Positioned(
-              bottom: _selectedRoute != null
-                  ? 188
-                  : (isRent && _selectedStation != null)
-                      ? 180
-                      : 24,
-              left: 16,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Risk map toggle chip
-                  GestureDetector(
-                    onTap: () => ref
-                        .read(showCyclingRoutesProvider.notifier)
-                        .state = !showRoutes,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: showRoutes
-                            ? const Color(0xFFF44336).withAlpha(25)
-                            : Colors.white.withAlpha(220),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                            color: showRoutes
-                                ? const Color(0xFFF44336)
-                                : Colors.black26),
-                        boxShadow: const [
-                          BoxShadow(color: Colors.black12, blurRadius: 4)
-                        ],
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.route_rounded,
-                              color: showRoutes
-                                  ? const Color(0xFFF44336)
-                                  : Colors.black38,
-                              size: 16),
-                          const SizedBox(width: 4),
-                          Text(
-                            isRo ? 'Hartă risc' : 'Risk Map',
-                            style: TextStyle(
-                              color: showRoutes
-                                  ? const Color(0xFFF44336)
-                                  : Colors.black38,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      if (isRent) ...[
-                        _LegendChip(
-                          color: const Color(0xFF1565C0),
-                          icon: Icons.pedal_bike_rounded,
-                          label: isRo ? 'Închiriere' : 'Rental',
-                        ),
-                        const SizedBox(width: 8),
-                      ],
-                      _LegendChip(
-                        color: const Color(0xFF6A1B9A),
-                        icon: Icons.local_parking_rounded,
-                        label: isRo ? 'Parcare' : 'Parking',
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
+
 
           // ── Route Info Card (shown when user taps a cycling route) ───────────
           if (_selectedRoute != null)
@@ -533,7 +478,7 @@ class _MapTabState extends ConsumerState<MapTab> {
           // ── Locate Me ────────────────────────────────────────────────────────
           Positioned(
             right: 16,
-            bottom: (isNavigate && origin != null && destination != null) ? 200 : 100,
+            bottom: (isNavigate && origin != null && destination != null) ? 260 : 100,
             child: FloatingActionButton.small(
               heroTag: 'locate',
               backgroundColor: AppTheme.surface,
@@ -563,6 +508,19 @@ class _MapTabState extends ConsumerState<MapTab> {
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────────────
+
+  Future<void> _onStartRide() async {
+    final weather = ref.read(weatherProvider).valueOrNull;
+    final isRo = ref.read(isRomanianProvider);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _StartRideDialog(weather: weather, isRo: isRo),
+    );
+    if (confirmed == true && mounted) {
+      ref.read(rideProvider.notifier).startRide();
+    }
+  }
 
   Future<void> _maybeFetchRoutes(LatLng? from, LatLng? to) async {
     if (from == null || to == null) return;
@@ -814,7 +772,150 @@ class _MapTabState extends ConsumerState<MapTab> {
   }
 }
 
-// ─── Navigation Search Panel (integrated FROM/TO with quick-pick) ─────────────
+// ─── Map toggle icon button (top-right panel) ───────────────────────────────────────────
+class _MapToggleIconButton extends StatelessWidget {
+  final IconData icon;
+  final bool active;
+  final Color activeColor;
+  final String tooltip;
+  final VoidCallback onTap;
+  const _MapToggleIconButton({
+    required this.icon,
+    required this.active,
+    required this.activeColor,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: active ? activeColor.withAlpha(35) : Colors.white,
+            shape: BoxShape.circle,
+            border: Border.all(
+                color: active ? activeColor : Colors.black12, width: 1.5),
+            boxShadow: const [
+              BoxShadow(color: Colors.black12, blurRadius: 4)
+            ],
+          ),
+          child: Icon(icon,
+              color: active ? activeColor : Colors.black38, size: 17),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Start Ride safety dialog ──────────────────────────────────────────────────────
+class _StartRideDialog extends StatelessWidget {
+  final WeatherData? weather;
+  final bool isRo;
+  const _StartRideDialog({this.weather, required this.isRo});
+
+  @override
+  Widget build(BuildContext context) {
+    final hasBadWeather = weather?.isAlert ?? false;
+    return AlertDialog(
+      shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+      contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+      title: Row(
+        children: [
+          const Icon(Icons.sports_motorsports_rounded,
+              color: AppTheme.primary, size: 26),
+          const SizedBox(width: 10),
+          Text(
+            isRo ? 'Înainte să pleci' : 'Before you go',
+            style: const TextStyle(
+                fontWeight: FontWeight.w700, fontSize: 17),
+          ),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _SafetyItem(
+            icon: Icons.sports_motorsports_rounded,
+            color: AppTheme.primary,
+            text: isRo
+                ? 'Poartă casca de protecție'
+                : 'Wear your helmet',
+          ),
+          if (hasBadWeather && weather != null) ...[
+            const SizedBox(height: 8),
+            _SafetyItem(
+              icon: weather!.icon,
+              color: weather!.color,
+              text: isRo ? weather!.alertMessageRo : weather!.alertMessage,
+            ),
+          ],
+        ],
+      ),
+      actionsPadding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: Text(isRo ? 'Anulează' : 'Cancel'),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppTheme.primary,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12)),
+          ),
+          onPressed: () => Navigator.pop(context, true),
+          child: Text(isRo ? 'Pornesc!' : "Let's go!"),
+        ),
+      ],
+    );
+  }
+}
+
+class _SafetyItem extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String text;
+  const _SafetyItem(
+      {required this.icon, required this.color, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withAlpha(20),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withAlpha(60)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                  color: color.withAlpha(210),
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Navigation Search Panel (integrated FROM/TO with quick-pick) ───────────────
 class _NavigationSearchPanel extends ConsumerWidget {
   final LatLng? origin;
   final LatLng? destination;
@@ -1621,38 +1722,6 @@ class _StatPill extends StatelessWidget {
       );
 }
 
-class _LegendChip extends StatelessWidget {
-  final Color color;
-  final IconData icon;
-  final String label;
-  const _LegendChip(
-      {required this.color, required this.icon, required this.label});
-
-  @override
-  Widget build(BuildContext context) => Container(
-        padding:
-            const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: Colors.white.withAlpha(230),
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: const [
-            BoxShadow(color: Colors.black12, blurRadius: 4)
-          ],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: color, size: 16),
-            const SizedBox(width: 4),
-            Text(label,
-                style: TextStyle(
-                    color: color,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 12)),
-          ],
-        ),
-      );
-}
 // ─── Search Bar ───────────────────────────────────────────────────────────────
 class _SearchBar extends StatelessWidget {
   final TextEditingController controller;

@@ -2,7 +2,7 @@
 
 A flutter based navigation and information application for Living Maps in Cycling Mobility Hackathon
 
-##🏗️ Infrastructura Proiectului (Sistem & Hardware)
+🏗️ Infrastructura Proiectului (Sistem & Hardware)
 
     Securitatea bicicliștilor:
         -Implementarea bordurilor separatoare pe arterele principale, unde riscul de accidente este cel mai ridicat.
@@ -17,7 +17,7 @@ A flutter based navigation and information application for Living Maps in Cyclin
         -Preluarea datelor din feedback-ul utilizatorilor prin intermediul aplicației.
         -Integrarea senzorilor pe bicicletele de închiriat pentru a monitoriza parametrii precum: calitatea aerului, starea carosabilului (prin vibrații) și viteza medie de deplasare.
 
-##📱 Funcționalitățile Aplicației Mobile
+📱 Funcționalitățile Aplicației Mobile
 
     -Rutare: Planificarea și monitorizarea traseelor în timp real.
     -Social & Tracking: Interacțiune cu comunitatea, istoric detaliat al curselor și un sistem de recompensare (badge system).
